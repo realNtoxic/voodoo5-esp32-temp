@@ -1,6 +1,7 @@
 // =============================================================
 //  test_main.cpp — Unity-Tests fuer den Boot-Selbsttest:
-//  OLED-Stufe, ROM-Validierung, Sensor-Stufe, Discovery-Gate.
+//  OLED-Stufe, ROM-Validierung, Sensor-Stufe, Luefter-Stufe,
+//  Discovery-Gate.
 // =============================================================
 #include <string>
 #include <vector>
@@ -144,6 +145,77 @@ static void test_sensor_out_of_range_value_counts_as_missing() {
 }
 
 // ---------------------------------------------------------------
+//  Luefter-Stufe (direkt getestet, unabhaengig vom Discovery-Gate)
+// ---------------------------------------------------------------
+
+static void test_fans_all_ok_no_beep_no_oled_line() {
+  FakeHal hal;
+  // Default fanRpms = 1000 fuer beide Luefter.
+
+  const bool ok = selfTestFans(hal);
+
+  TEST_ASSERT_TRUE(ok);
+  const std::vector<std::string> expected = {
+    "fanSetDutyPercent:0:100",
+    "delayMs:" + std::to_string(FAN_STARTUP_MS),
+    "fanReadRpm:0",
+    "fanSetDutyPercent:0:0",
+    "fanSetDutyPercent:1:100",
+    "delayMs:" + std::to_string(FAN_STARTUP_MS),
+    "fanReadRpm:1",
+    "fanSetDutyPercent:1:0",
+  };
+  TEST_ASSERT_EQUAL_UINT(expected.size(), hal.calls.size());
+  for (size_t i = 0; i < expected.size(); ++i) {
+    TEST_ASSERT_EQUAL_STRING(expected[i].c_str(), hal.calls[i].c_str());
+  }
+}
+
+static void test_fan2_does_not_spin_while_fan1_ran_before() {
+  FakeHal hal;
+  hal.fanRpms[1] = 0;  // Luefter 2 dreht nicht, trotz Duty 100 %.
+
+  const bool ok = selfTestFans(hal);
+
+  TEST_ASSERT_FALSE(ok);
+
+  std::vector<std::string> expected = {
+    // Luefter 1: laeuft vorher erfolgreich durch.
+    "fanSetDutyPercent:0:100",
+    "delayMs:" + std::to_string(FAN_STARTUP_MS),
+    "fanReadRpm:0",
+    "fanSetDutyPercent:0:0",
+    // Luefter 2: Anlauf, aber keine Drehzahl -> Fehler.
+    "fanSetDutyPercent:1:100",
+    "delayMs:" + std::to_string(FAN_STARTUP_MS),
+    "fanReadRpm:1",
+    "fanSetDutyPercent:1:0",
+    "oledShowLine:4:LUEFTER2 FEHLT",
+  };
+  for (uint8_t i = 0; i < BEEPS_FAN; ++i) {
+    expected.push_back("beep:" + std::to_string(BEEP_ERR_FREQ) + ":" + std::to_string(BEEP_ERR_MS));
+    if (i + 1 < BEEPS_FAN) {
+      expected.push_back("delayMs:" + std::to_string(BEEP_GAP_MS));
+    }
+  }
+
+  TEST_ASSERT_EQUAL_UINT(expected.size(), hal.calls.size());
+  for (size_t i = 0; i < expected.size(); ++i) {
+    TEST_ASSERT_EQUAL_STRING(expected[i].c_str(), hal.calls[i].c_str());
+  }
+}
+
+static void test_fan_rpm_below_min_counts_as_error() {
+  FakeHal hal;
+  hal.fanRpms[0] = FAN_MIN_RPM - 1;
+
+  const bool ok = selfTestFans(hal);
+
+  TEST_ASSERT_FALSE(ok);
+  TEST_ASSERT_EQUAL_STRING("oledShowLine:3:LUEFTER1 FEHLT", hal.calls[4].c_str());
+}
+
+// ---------------------------------------------------------------
 //  Gesamtablauf runBootSelfTest()
 // ---------------------------------------------------------------
 
@@ -156,6 +228,7 @@ static void test_full_selftest_enters_discovery_with_shipped_config() {
   TEST_ASSERT_TRUE(result.oledOk);
   TEST_ASSERT_TRUE(result.discoveryMode);
   TEST_ASSERT_FALSE(result.sensorsOk);
+  TEST_ASSERT_FALSE(result.fansOk);
 
   const std::vector<std::string> expected = {
     "beep:" + std::to_string(BEEP_START_FREQ) + ":" + std::to_string(BEEP_START_MS),
@@ -199,6 +272,10 @@ int main(int, char**) {
   RUN_TEST(test_sensors_all_ok_no_beep_no_oled_line);
   RUN_TEST(test_sensor_vsa2_missing_beeps_and_shows_oled_line);
   RUN_TEST(test_sensor_out_of_range_value_counts_as_missing);
+
+  RUN_TEST(test_fans_all_ok_no_beep_no_oled_line);
+  RUN_TEST(test_fan2_does_not_spin_while_fan1_ran_before);
+  RUN_TEST(test_fan_rpm_below_min_counts_as_error);
 
   RUN_TEST(test_full_selftest_enters_discovery_with_shipped_config);
   RUN_TEST(test_full_selftest_discovery_stays_acoustic_only_when_oled_down);

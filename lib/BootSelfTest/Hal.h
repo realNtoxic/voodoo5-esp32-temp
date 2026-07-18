@@ -2,8 +2,9 @@
 //  Hal.h — Hardware-Abstraktion fuer den Boot-Selbsttest.
 //
 //  Reine Schnittstelle, KEIN Arduino.h. Jede Hardware-Interaktion
-//  (Speaker, OLED, Sensoren, Zeit) laeuft ausschliesslich hierueber,
-//  damit die Selbsttest-Logik nativ mit FakeHal testbar bleibt.
+//  (Speaker, OLED, Sensoren, Luefter, Zeit) laeuft ausschliesslich
+//  hierueber, damit die Selbsttest-Logik nativ mit FakeHal testbar
+//  bleibt.
 // =============================================================
 #pragma once
 #include <cstdint>
@@ -26,4 +27,11 @@ public:
   // Scannt den 1-Wire-Bus und gibt gefundene ROM-Adressen paste-fertig
   // ueber Serial aus. Nur im Discovery-Modus aufgerufen.
   virtual void runOneWireDiscovery() = 0;
+
+  // fanIndex: 0 = Luefter 1, 1 = Luefter 2.
+  virtual void fanSetDutyPercent(uint8_t fanIndex, uint8_t dutyPercent) = 0;
+
+  // Misst die Drehzahl ueber ein Zeitfenster (TACHO_WIN_MS) und liefert
+  // sie in RPM.
+  virtual uint16_t fanReadRpm(uint8_t fanIndex) = 0;
 };

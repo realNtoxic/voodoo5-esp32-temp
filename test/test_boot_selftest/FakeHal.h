@@ -20,6 +20,9 @@ public:
   float sensorTemps[3] = { 25.0f, 25.0f, 25.0f };
   uint8_t sensorCallCount = 0;
 
+  // Default: beide Luefter melden eine Drehzahl oberhalb FAN_MIN_RPM.
+  uint16_t fanRpms[2] = { 1000, 1000 };
+
   void beep(uint16_t freqHz, uint16_t ms) override {
     calls.push_back("beep:" + std::to_string(freqHz) + ":" + std::to_string(ms));
   }
@@ -47,5 +50,14 @@ public:
 
   void runOneWireDiscovery() override {
     calls.push_back("runOneWireDiscovery");
+  }
+
+  void fanSetDutyPercent(uint8_t fanIndex, uint8_t dutyPercent) override {
+    calls.push_back("fanSetDutyPercent:" + std::to_string(fanIndex) + ":" + std::to_string(dutyPercent));
+  }
+
+  uint16_t fanReadRpm(uint8_t fanIndex) override {
+    calls.push_back("fanReadRpm:" + std::to_string(fanIndex));
+    return fanRpms[fanIndex];
   }
 };

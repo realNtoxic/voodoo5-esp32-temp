@@ -25,6 +25,13 @@ public:
     sensors_.setResolution(SENSOR_RES_BITS);
   }
 
+  void beginFans() {
+    for (uint8_t i = 0; i < 2; ++i) {
+      ledcAttach(FAN[i].pwmPin, FAN_PWM_FREQ_HZ, FAN_PWM_RESOLUTION);
+      pinMode(FAN[i].tachoPin, INPUT_PULLUP);
+    }
+  }
+
   void beep(uint16_t freqHz, uint16_t ms) override {
     tone(PIN_SPEAKER, freqHz);
     delay(ms);
@@ -82,11 +89,36 @@ public:
     oneWire_.reset_search();
   }
 
+  void fanSetDutyPercent(uint8_t fanIndex, uint8_t dutyPercent) override {
+    const uint32_t maxDuty = (1u << FAN_PWM_RESOLUTION) - 1;
+    const uint32_t duty = (maxDuty * dutyPercent) / 100;
+    ledcWrite(FAN[fanIndex].pwmPin, duty);
+  }
+
+  uint16_t fanReadRpm(uint8_t fanIndex) override {
+    tachoEdgeCount_[fanIndex] = 0;
+    const uint8_t pin = FAN[fanIndex].tachoPin;
+    attachInterruptArg(digitalPinToInterrupt(pin), &Esp32Hal::onTachoEdge,
+                        (void*)&tachoEdgeCount_[fanIndex], FALLING);
+    delay(TACHO_WIN_MS);
+    detachInterrupt(digitalPinToInterrupt(pin));
+
+    const uint32_t edges = tachoEdgeCount_[fanIndex];
+    return static_cast<uint16_t>(
+        (edges * 60000UL) / (static_cast<uint32_t>(TACHO_PULSES_PER_REV) * TACHO_WIN_MS));
+  }
+
 private:
+  static void IRAM_ATTR onTachoEdge(void* arg) {
+    volatile uint32_t* counter = static_cast<volatile uint32_t*>(arg);
+    ++(*counter);
+  }
+
   Adafruit_SSD1306 display_;
   OneWire oneWire_;
   DallasTemperature sensors_;
   bool oledOk_ = false;
+  volatile uint32_t tachoEdgeCount_[2] = { 0, 0 };
 };
 
 Esp32Hal hal;
@@ -96,6 +128,7 @@ void setup() {
   pinMode(PIN_SPEAKER, OUTPUT);
   Wire.begin();
   hal.beginSensors();
+  hal.beginFans();
 
   runBootSelfTest(hal);
 }

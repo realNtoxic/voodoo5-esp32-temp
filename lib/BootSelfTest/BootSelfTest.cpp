@@ -32,6 +32,13 @@ const char* roleLabel(uint8_t role) {
   }
 }
 
+const char* fanLabel(uint8_t fanIndex) {
+  return fanIndex == 0 ? "LUEFTER1" : "LUEFTER2";
+}
+
+// OLED-Zeilen 0-2 sind waehrend des Selbsttests fuer die Sensoren belegt.
+constexpr uint8_t OLED_ROW_FAN_BASE = 3;
+
 void beepErrorCode(Hal& hal, uint8_t count) {
   for (uint8_t i = 0; i < count; ++i) {
     hal.beep(BEEP_ERR_FREQ, BEEP_ERR_MS);
@@ -91,6 +98,26 @@ bool selfTestSensors(Hal& hal) {
   return allOk;
 }
 
+bool selfTestFans(Hal& hal) {
+  bool allOk = true;
+  for (uint8_t fanIndex = 0; fanIndex < 2; ++fanIndex) {
+    hal.fanSetDutyPercent(fanIndex, 100);
+    hal.delayMs(FAN_STARTUP_MS);
+    const uint16_t rpm = hal.fanReadRpm(fanIndex);
+    hal.fanSetDutyPercent(fanIndex, 0);
+
+    const bool ok = rpm >= FAN_MIN_RPM;
+    if (!ok) {
+      allOk = false;
+      char line[16];
+      std::snprintf(line, sizeof(line), "%s FEHLT", fanLabel(fanIndex));
+      hal.oledShowLine(OLED_ROW_FAN_BASE + fanIndex, line);
+      beepErrorCode(hal, BEEPS_FAN);
+    }
+  }
+  return allOk;
+}
+
 SelfTestResult runBootSelfTest(Hal& hal) {
   selfTestStartBeep(hal);
   const bool oledOk = selfTestOled(hal);
@@ -101,9 +128,10 @@ SelfTestResult runBootSelfTest(Hal& hal) {
       hal.oledShowLine(0, "SETUP");
     }
     hal.runOneWireDiscovery();
-    return SelfTestResult{ oledOk, true, false };
+    return SelfTestResult{ oledOk, true, false, false };
   }
 
   const bool sensorsOk = selfTestSensors(hal);
-  return SelfTestResult{ oledOk, false, sensorsOk };
+  const bool fansOk = selfTestFans(hal);
+  return SelfTestResult{ oledOk, false, sensorsOk, fansOk };
 }
