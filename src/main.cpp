@@ -14,18 +14,22 @@ class Esp32Hal : public Hal {
 public:
   Esp32Hal() : display_(OLED_WIDTH, OLED_HEIGHT, &Wire, -1) {}
 
-  void beginSpeaker() {
-    ledcAttach(PIN_SPEAKER, BEEP_START_FREQ, 8);
-  }
-
   void beep(uint16_t freqHz, uint16_t ms) override {
     // tone()/noTone() sind auf dem ESP32-Arduino-Core unzuverlaessig bei
     // schnell aufeinanderfolgenden Aufrufen (zweiter Ton startet oft nicht
-    // neu) -> stattdessen direkt ueber LEDC, das fuer genau diesen
-    // Anwendungsfall gedacht ist.
-    ledcWriteTone(PIN_SPEAKER, freqHz);
-    delay(ms);
-    ledcWriteTone(PIN_SPEAKER, 0);
+    // neu), und die LEDC-API unterscheidet sich je nach Core-Version
+    // (ledcAttach(pin,...) vs. ledcSetup+ledcAttachPin(pin, channel)).
+    // Statt uns auf eine bestimmte Core-Version festzulegen, erzeugen wir
+    // die Rechteckwelle direkt per digitalWrite -- funktioniert ueberall
+    // identisch und haengt an keiner Tonerzeugungs-API.
+    const uint32_t halfPeriodUs = 500000UL / freqHz;
+    const uint32_t cycles = (static_cast<uint32_t>(ms) * 1000UL) / (2 * halfPeriodUs);
+    for (uint32_t i = 0; i < cycles; ++i) {
+      digitalWrite(PIN_SPEAKER, HIGH);
+      delayMicroseconds(halfPeriodUs);
+      digitalWrite(PIN_SPEAKER, LOW);
+      delayMicroseconds(halfPeriodUs);
+    }
   }
 
   void delayMs(uint32_t ms) override {
@@ -57,7 +61,7 @@ Esp32Hal hal;
 
 void setup() {
   Serial.begin(115200);
-  hal.beginSpeaker();
+  pinMode(PIN_SPEAKER, OUTPUT);
   Wire.begin();
 
   runBootSelfTest(hal);
