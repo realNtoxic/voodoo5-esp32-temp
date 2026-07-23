@@ -80,7 +80,7 @@ Schritt ist auf CachyOS und Linux Mint identisch:
 
 ```bash
 curl -fsSL \
-  https://raw.githubusercontent.com/platformio/platformio-core/master/scripts/99-platformio-udev.rules \
+  https://raw.githubusercontent.com/platformio/platformio-core/master/platformio/assets/system/99-platformio-udev.rules \
   | sudo tee /etc/udev/rules.d/99-platformio-udev.rules
 sudo udevadm control --reload-rules
 sudo udevadm trigger
