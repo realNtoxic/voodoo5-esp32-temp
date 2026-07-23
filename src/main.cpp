@@ -6,30 +6,65 @@
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 #include "config.h"
 #include "Hal.h"
 #include "BootSelfTest.h"
+
+namespace {
+
+// tone()/noTone() sind auf dem ESP32-Arduino-Core unzuverlaessig bei
+// schnell aufeinanderfolgenden Aufrufen (zweiter Ton startet oft nicht
+// neu), und die LEDC-API unterscheidet sich je nach Core-Version
+// (ledcAttach(pin,...) vs. ledcSetup+ledcAttachPin(pin, channel)).
+// Statt uns auf eine bestimmte Core-Version festzulegen, erzeugen wir
+// die Rechteckwelle direkt per digitalWrite -- funktioniert ueberall
+// identisch und haengt an keiner Tonerzeugungs-API. Wird sowohl vom
+// blockierenden beep() als auch von der beepAsync()-Task genutzt.
+void playSquareWave(uint8_t pin, uint16_t freqHz, uint16_t ms) {
+  const uint32_t halfPeriodUs = 500000UL / freqHz;
+  const uint32_t cycles = (static_cast<uint32_t>(ms) * 1000UL) / (2 * halfPeriodUs);
+  for (uint32_t i = 0; i < cycles; ++i) {
+    digitalWrite(pin, HIGH);
+    delayMicroseconds(halfPeriodUs);
+    digitalWrite(pin, LOW);
+    delayMicroseconds(halfPeriodUs);
+  }
+}
+
+struct BeepTaskParams {
+  uint8_t pin;
+  uint16_t freqHz;
+  uint16_t ms;
+};
+
+// Laeuft als eigene FreeRTOS-Task (siehe Esp32Hal::beepAsync) und
+// beendet sich danach selbst.
+void beepTask(void* arg) {
+  BeepTaskParams* params = static_cast<BeepTaskParams*>(arg);
+  playSquareWave(params->pin, params->freqHz, params->ms);
+  delete params;
+  vTaskDelete(nullptr);
+}
+
+}  // namespace
 
 class Esp32Hal : public Hal {
 public:
   Esp32Hal() : display_(OLED_WIDTH, OLED_HEIGHT, &Wire, -1) {}
 
   void beep(uint16_t freqHz, uint16_t ms) override {
-    // tone()/noTone() sind auf dem ESP32-Arduino-Core unzuverlaessig bei
-    // schnell aufeinanderfolgenden Aufrufen (zweiter Ton startet oft nicht
-    // neu), und die LEDC-API unterscheidet sich je nach Core-Version
-    // (ledcAttach(pin,...) vs. ledcSetup+ledcAttachPin(pin, channel)).
-    // Statt uns auf eine bestimmte Core-Version festzulegen, erzeugen wir
-    // die Rechteckwelle direkt per digitalWrite -- funktioniert ueberall
-    // identisch und haengt an keiner Tonerzeugungs-API.
-    const uint32_t halfPeriodUs = 500000UL / freqHz;
-    const uint32_t cycles = (static_cast<uint32_t>(ms) * 1000UL) / (2 * halfPeriodUs);
-    for (uint32_t i = 0; i < cycles; ++i) {
-      digitalWrite(PIN_SPEAKER, HIGH);
-      delayMicroseconds(halfPeriodUs);
-      digitalWrite(PIN_SPEAKER, LOW);
-      delayMicroseconds(halfPeriodUs);
-    }
+    playSquareWave(PIN_SPEAKER, freqHz, ms);
+  }
+
+  void beepAsync(uint16_t freqHz, uint16_t ms) override {
+    // Laufbetrieb (Wiederhol-Alarm, Ack-Taster): darf den Regelkreis
+    // nicht blockieren, siehe CLAUDE.md Abschnitt "Akustik". Deshalb
+    // eigene Task auf Core 0 -- die Hauptschleife (Core 1, Arduino-Loop)
+    // stoesst nur an und kehrt sofort zurueck.
+    auto* params = new BeepTaskParams{ PIN_SPEAKER, freqHz, ms };
+    xTaskCreatePinnedToCore(&beepTask, "beepAsync", 2048, params, 1, nullptr, 0);
   }
 
   void delayMs(uint32_t ms) override {

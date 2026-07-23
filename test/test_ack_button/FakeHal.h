@@ -1,6 +1,9 @@
 // =============================================================
 //  FakeHal.h — Test-Double fuer Hal. Protokolliert jeden Aufruf
 //  als String, damit Tests Reihenfolge und Inhalt pruefen koennen.
+//
+//  Eigene Kopie je Test-Suite (PlatformIO baut jedes test/test_*
+//  Verzeichnis unabhaengig) -- analog zu test/test_boot_selftest/.
 // =============================================================
 #pragma once
 #include <string>
