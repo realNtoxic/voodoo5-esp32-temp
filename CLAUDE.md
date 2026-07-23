@@ -88,6 +88,38 @@ Bauteile: ESP32 DevKit, 3x DS18B20, OLED SSD1306 128x64, 2x Noctua NF-A4x10
 
 ---
 
+## Bekannte ESP32-Arduino-Core-Fallstricke
+
+Beim ersten Live-Test des Boot-Selbsttests (Speaker + OLED) aufgetreten —
+bei jeder Erweiterung der realen `Hal`-Implementierung (`src/main.cpp`)
+wieder relevant, da native Unity-Tests das nicht faengen (Grenze: Logik,
+nicht Hardware).
+
+- **`tone()`/`noTone()` sind auf dem ESP32 unzuverlaessig.** Bei schnell
+  aufeinanderfolgenden Aufrufen (z. B. zwei Fehlerpiepse mit
+  `BEEP_GAP_MS` Pause) startet der zweite Ton oft nicht neu — der erste
+  Piep klingt, danach bleibt es still. `ledcAttach()`/`ledcWriteTone()`
+  als Ersatz ist **keine** Loesung, weil die LEDC-API je nach
+  Core-Version unterschiedlich ist (`ledcAttach(pin,...)` in Core 3.x vs.
+  `ledcSetup()` + `ledcAttachPin()` in aelteren Cores) und Builds je nach
+  installierter Core-Version bricht. Toene deshalb immer per
+  `digitalWrite()`/`delayMicroseconds()` (Rechteckwelle) erzeugen —
+  funktioniert core-versionsunabhaengig und haengt an keiner
+  Tonerzeugungs-API.
+- **`Wire`/I2C kann beim ESP32 unbegrenzt haengen, wenn kein Geraet
+  antwortet** (z. B. OLED noch nicht angeschlossen, SDA/SCL floaten).
+  Ohne Gegenmassnahme blockiert das den kompletten Selbsttest lautlos,
+  noch bevor der Watchdog scharf ist — Symptom: Start-Piep klingt, dann
+  totale Stille, keine Fehlerpiepse. Deshalb **immer**:
+  `Wire.setTimeOut(...)` direkt nach `Wire.begin()` setzen, und vor jedem
+  `<Bibliothek>.begin()`-Aufruf per `Wire.beginTransmission(addr)` /
+  `Wire.endTransmission()` pruefen, ob ueberhaupt ein Geraet antwortet,
+  statt direkt in die (potenziell haengende) Bibliotheksfunktion zu
+  springen. Gilt fuer jedes zukuenftige I2C-Peripheriegeraet, nicht nur
+  das OLED.
+
+---
+
 ## Funktionsuebersicht
 
 ### Boot-Selbsttest
