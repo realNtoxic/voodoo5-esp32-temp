@@ -85,38 +85,18 @@ Bauteile: ESP32 DevKit, 3x DS18B20, OLED SSD1306 128x64, 2x Noctua NF-A4x10
 - Luefter sind die **5V-Variante** — Molex rot, nicht gelb.
 - Molex-GND und ESP32-GND muessen verbunden sein, sonst kein Tacho-Bezug.
 - DS18B20 **nicht** parasitaer speisen, alle drei mit VDD.
-
----
-
-## Bekannte ESP32-Arduino-Core-Fallstricke
-
-Beim ersten Live-Test des Boot-Selbsttests (Speaker + OLED) aufgetreten —
-bei jeder Erweiterung der realen `Hal`-Implementierung (`src/main.cpp`)
-wieder relevant, da native Unity-Tests das nicht faengen (Grenze: Logik,
-nicht Hardware).
-
-- **`tone()`/`noTone()` sind auf dem ESP32 unzuverlaessig.** Bei schnell
-  aufeinanderfolgenden Aufrufen (z. B. zwei Fehlerpiepse mit
-  `BEEP_GAP_MS` Pause) startet der zweite Ton oft nicht neu — der erste
-  Piep klingt, danach bleibt es still. `ledcAttach()`/`ledcWriteTone()`
-  als Ersatz ist **keine** Loesung, weil die LEDC-API je nach
-  Core-Version unterschiedlich ist (`ledcAttach(pin,...)` in Core 3.x vs.
-  `ledcSetup()` + `ledcAttachPin()` in aelteren Cores) und Builds je nach
-  installierter Core-Version bricht. Toene deshalb immer per
-  `digitalWrite()`/`delayMicroseconds()` (Rechteckwelle) erzeugen —
-  funktioniert core-versionsunabhaengig und haengt an keiner
-  Tonerzeugungs-API.
-- **`Wire`/I2C kann beim ESP32 unbegrenzt haengen, wenn kein Geraet
-  antwortet** (z. B. OLED noch nicht angeschlossen, SDA/SCL floaten).
-  Ohne Gegenmassnahme blockiert das den kompletten Selbsttest lautlos,
-  noch bevor der Watchdog scharf ist — Symptom: Start-Piep klingt, dann
-  totale Stille, keine Fehlerpiepse. Deshalb **immer**:
-  `Wire.setTimeOut(...)` direkt nach `Wire.begin()` setzen, und vor jedem
-  `<Bibliothek>.begin()`-Aufruf per `Wire.beginTransmission(addr)` /
-  `Wire.endTransmission()` pruefen, ob ueberhaupt ein Geraet antwortet,
-  statt direkt in die (potenziell haengende) Bibliotheksfunktion zu
-  springen. Gilt fuer jedes zukuenftige I2C-Peripheriegeraet, nicht nur
-  das OLED.
+- **I2C blockiert ohne angeschlossenes Geraet.** Haengen SDA/SCL frei in
+  der Luft, kann `Wire` auf dem ESP32 unbegrenzt blockieren statt "kein
+  Geraet" zu melden. Der Selbsttest haengt dann in `oledInit()` fest,
+  bevor die Fehlerpiepse ueberhaupt drankommen. Pflicht: `Wire.setTimeOut()`
+  setzen und vor jedem `begin()` einen expliziten Praesenz-Check per
+  `beginTransmission`/`endTransmission`. Dieselbe Pruefung ist auch
+  `hal.oledPresent()` fuer den Health-Monitor.
+- **`tone()`/`noTone()` sind bei schnell aufeinanderfolgenden Aufrufen
+  unzuverlaessig.** Der zweite Ton nach kurzer Pause startet oft nicht
+  neu. Toene werden daher per `digitalWrite()`/`delayMicroseconds()` als
+  Rechteck erzeugt. LEDC wurde bewusst verworfen (API unterscheidet sich
+  je nach Core-Version: `ledcAttach` vs. `ledcSetup`/`ledcAttachPin`).
 
 ---
 
@@ -186,6 +166,18 @@ quittiert). Alarm laeuft, solange `latched & ~acked != 0`.
 `healthTick` **setzt** Bits nur, loescht nie — Erholung entfernt den Fehler
 nicht. Ein neuer Fehler nach dem Quittieren loest den Ton erneut aus.
 
+### Akustik (Speaker)
+Der bit-gebangte Ton (siehe "Fallen") **blockiert**. Im Boot-Selbsttest
+ist das erlaubt und unkritisch. Im **Laufbetrieb nicht**: Wiederhol-Alarm
+und Taster-Bestaetigungen duerfen den Regelkreis nicht anhalten. Ein
+120-ms-Ton an der 500-ms-Schwelle wuerde sonst die Erkennung der
+1200-ms-Schwelle um 120 ms verschieben.
+
+`hal.beepAsync()` wird daher ueber eine FreeRTOS-Task (Core 0) realisiert,
+die die Rechteck-Erzeugung uebernimmt; die Hauptschleife stoesst nur an
+und kehrt sofort zurueck. `hal.beep()` (blockierend) bleibt
+ausschliesslich dem Boot-Selbsttest vorbehalten.
+
 ### Ack-Taster
 Ton markiert den Ausloeser der Aktion:
 
@@ -228,10 +220,11 @@ Hardware-in-the-Loop oder Renode.
 
 ## Inbetriebnahme (stufenweise)
 
-1. ESP32 + Speaker — Start-Piep
-2. + OLED — Selbsttest-Anzeige
+1. ESP32 + Speaker — Start-Piep **(erledigt)**
+2. + OLED — Selbsttest-Anzeige, inkl. verifiziertem Fehlerpfad
+   (fehlendes OLED -> Fehlerbeep) **(erledigt)**
 3. + DS18B20 **auf dem Steckbrett** — Discovery, Adressen zuordnen,
-   Sensoren **sofort physisch markieren**
+   Sensoren **sofort physisch markieren** **(naechster Schritt)**
 4. + Luefter — **zuerst nur einen** anschliessen, damit die Zuordnung
    1/2 eindeutig ist
 5. Erst dann: Sensoren auf die Karte, Halter drucken, Einbau
