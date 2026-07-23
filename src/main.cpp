@@ -14,10 +14,18 @@ class Esp32Hal : public Hal {
 public:
   Esp32Hal() : display_(OLED_WIDTH, OLED_HEIGHT, &Wire, -1) {}
 
+  void beginSpeaker() {
+    ledcAttach(PIN_SPEAKER, BEEP_START_FREQ, 8);
+  }
+
   void beep(uint16_t freqHz, uint16_t ms) override {
-    tone(PIN_SPEAKER, freqHz);
+    // tone()/noTone() sind auf dem ESP32-Arduino-Core unzuverlaessig bei
+    // schnell aufeinanderfolgenden Aufrufen (zweiter Ton startet oft nicht
+    // neu) -> stattdessen direkt ueber LEDC, das fuer genau diesen
+    // Anwendungsfall gedacht ist.
+    ledcWriteTone(PIN_SPEAKER, freqHz);
     delay(ms);
-    noTone(PIN_SPEAKER);
+    ledcWriteTone(PIN_SPEAKER, 0);
   }
 
   void delayMs(uint32_t ms) override {
@@ -49,7 +57,7 @@ Esp32Hal hal;
 
 void setup() {
   Serial.begin(115200);
-  pinMode(PIN_SPEAKER, OUTPUT);
+  hal.beginSpeaker();
   Wire.begin();
 
   runBootSelfTest(hal);
