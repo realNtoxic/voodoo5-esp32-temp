@@ -37,6 +37,18 @@ public:
   }
 
   bool oledInit() override {
+    // Erst pruefen, ob ueberhaupt ein Geraet auf der Adresse antwortet.
+    // Ohne angeschlossenes OLED haengen SDA/SCL frei -> ohne diesen
+    // Vorab-Check und Wire.setTimeOut() (siehe setup()) kann der
+    // I2C-Treiber hier unbegrenzt blockieren, statt sauber false zu
+    // liefern, und der Rest des Selbsttests (Fehlerpiepse!) wuerde nie
+    // erreicht.
+    Wire.beginTransmission(OLED_ADDR);
+    if (Wire.endTransmission() != 0) {
+      oledOk_ = false;
+      return false;
+    }
+
     oledOk_ = display_.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR);
     if (oledOk_) {
       display_.clearDisplay();
@@ -63,6 +75,7 @@ void setup() {
   Serial.begin(115200);
   pinMode(PIN_SPEAKER, OUTPUT);
   Wire.begin();
+  Wire.setTimeOut(50);  // ms; verhindert unbegrenztes Haengen ohne OLED
 
   runBootSelfTest(hal);
 }
