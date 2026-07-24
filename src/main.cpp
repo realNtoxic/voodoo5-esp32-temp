@@ -108,7 +108,8 @@ public:
     // spaeteren Health-Monitor nach OLED-Ausfall -- denselben Ablauf
     // durchlaeuft: i2cRecover() (siehe selfTestOled()) laeuft dann immer
     // unmittelbar VOR diesem Wire.begin().
-    Wire.begin();
+    Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
+    Wire.setClock(I2C_CLOCK_HZ);  // robuster bei langen Steckbrett-Leitungen
     Wire.setTimeOut(50);  // ms; verhindert unbegrenztes Haengen ohne OLED
 
     // Erst pruefen, ob ueberhaupt ein Geraet auf der Adresse antwortet.

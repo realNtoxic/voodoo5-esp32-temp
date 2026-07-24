@@ -36,6 +36,8 @@ constexpr FanCfg FAN[2] = {
 constexpr uint8_t  OLED_ADDR     = 0x3C;   // manche Module: 0x3D
 constexpr uint8_t  OLED_WIDTH    = 128;
 constexpr uint8_t  OLED_HEIGHT   = 64;
+constexpr uint32_t I2C_CLOCK_HZ  = 50000;  // langsamer als Standard (100 kHz):
+                                            // robuster bei langen Steckbrett-Leitungen
 constexpr uint32_t SPLASH_MS     = 15000;  // Selbsttest-Bild, dann Dashboard
 
 // -------------------------------------------------------------
