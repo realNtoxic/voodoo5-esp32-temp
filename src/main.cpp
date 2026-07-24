@@ -100,14 +100,25 @@ public:
     Serial.printf("i2cRecover: %u Takt(e), SDA danach %s\n", pulses,
                   digitalRead(sdaPin) == HIGH ? "HIGH" : "LOW");
 
-    // Explizite STOP-Bedingung: SDA LOW -> SCL HIGH -> SDA HIGH.
-    pinMode(sdaPin, OUTPUT);
-    digitalWrite(sdaPin, LOW);
-    delayMicroseconds(5);
-    digitalWrite(sclPin, HIGH);
-    delayMicroseconds(5);
-    digitalWrite(sdaPin, HIGH);
-    delayMicroseconds(5);
+    // Explizite STOP-Bedingung nur, wenn der Bus tatsaechlich haengt (SDA
+    // war LOW). Auf einem gesunden, idle-High-Bus (der Normalfall) diesen
+    // Schritt NICHT ausfuehren: Ein manuell erzeugter SDA-Puls waere dort
+    // ein unnoetiges, unerwartetes Signal auf den I2C-Pins des SSD1306 --
+    // moeglicherweise genau waehrend dessen eigener Power-Up-Sequenz --
+    // und koennte den Chip selbst erst in einen haengenden Zustand
+    // bringen, statt nur einen bereits haengenden zu befreien. Der
+    // Wackeltest-Scanner ruehrt die Pins ueberhaupt nicht an und
+    // funktioniert deshalb zuverlaessig.
+    if (pulses > 0) {
+      // SDA LOW -> SCL HIGH -> SDA HIGH.
+      pinMode(sdaPin, OUTPUT);
+      digitalWrite(sdaPin, LOW);
+      delayMicroseconds(5);
+      digitalWrite(sclPin, HIGH);
+      delayMicroseconds(5);
+      digitalWrite(sdaPin, HIGH);
+      delayMicroseconds(5);
+    }
 
     // Bus in definiertem Idle-High-Zustand uebergeben (nicht floatend!) --
     // Wire.begin() erwartet danach ein sauberes High auf beiden Leitungen.
