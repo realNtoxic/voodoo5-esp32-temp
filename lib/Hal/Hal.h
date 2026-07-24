@@ -24,6 +24,12 @@ public:
 
   virtual void delayMs(uint32_t ms) = 0;
 
+  // Bus-Recovery: Muss vor jedem Wire.begin() laufen (siehe CLAUDE.md,
+  // Abschnitt "Fallen"). Ein Reset waehrend einer laufenden
+  // I2C-Uebertragung kann den Slave mit SDA auf LOW haengen lassen --
+  // ohne Recovery bleibt der Bus dann dauerhaft blockiert.
+  virtual void i2cRecover(uint8_t sdaPin, uint8_t sclPin) = 0;
+
   virtual bool oledInit() = 0;
   virtual void oledShowLine(uint8_t row, const char* text) = 0;
 };

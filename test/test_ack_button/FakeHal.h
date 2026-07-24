@@ -27,6 +27,10 @@ public:
     calls.push_back("delayMs:" + std::to_string(ms));
   }
 
+  void i2cRecover(uint8_t sdaPin, uint8_t sclPin) override {
+    calls.push_back("i2cRecover:" + std::to_string(sdaPin) + ":" + std::to_string(sclPin));
+  }
+
   bool oledInit() override {
     calls.push_back("oledInit");
     return oledInitResult;

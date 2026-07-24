@@ -12,6 +12,11 @@ public:
   std::vector<std::string> calls;
   bool oledInitResult = true;
 
+  // Nur zur Dokumentation des Testszenarios (Bus haengt nach Reset fest,
+  // siehe CLAUDE.md "Fallen") -- FakeHal simuliert keine echte GPIO-Ebene,
+  // i2cRecover() wird unten unabhaengig davon einfach geloggt.
+  bool sdaStuckLow = false;
+
   void beep(uint16_t freqHz, uint16_t ms) override {
     calls.push_back("beep:" + std::to_string(freqHz) + ":" + std::to_string(ms));
   }
@@ -22,6 +27,11 @@ public:
 
   void delayMs(uint32_t ms) override {
     calls.push_back("delayMs:" + std::to_string(ms));
+  }
+
+  void i2cRecover(uint8_t sdaPin, uint8_t sclPin) override {
+    calls.push_back("i2cRecover:" + std::to_string(sdaPin) + ":" + std::to_string(sclPin));
+    sdaStuckLow = false;
   }
 
   bool oledInit() override {

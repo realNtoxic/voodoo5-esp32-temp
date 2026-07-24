@@ -18,7 +18,8 @@
 constexpr uint8_t PIN_ONEWIRE = 4;    // DS18B20-Bus, 4,7k Pull-up -> 3V3
 constexpr uint8_t PIN_SPEAKER = 25;   // 1k -> Basis BC547
 constexpr uint8_t PIN_ACK     = 27;   // Taster gegen GND, INPUT_PULLUP
-// I2C OLED: SDA = 21, SCL = 22 (ESP32-Default)
+constexpr uint8_t PIN_I2C_SDA = 21;   // OLED, ESP32-Default
+constexpr uint8_t PIN_I2C_SCL = 22;   // OLED, ESP32-Default
 
 struct FanCfg { uint8_t pwmPin; uint8_t tachoPin; };
 

@@ -6,6 +6,11 @@ void selfTestStartBeep(Hal& hal) {
 }
 
 bool selfTestOled(Hal& hal) {
+  // Muss vor dem ersten I2C-Zugriff (oledInit() -> Wire.begin()) laufen:
+  // Ein Reset mitten in einer Uebertragung kann den Bus mit SDA auf LOW
+  // haengen lassen, siehe CLAUDE.md "Fallen".
+  hal.i2cRecover(PIN_I2C_SDA, PIN_I2C_SCL);
+
   const bool ok = hal.oledInit();
   if (!ok) {
     // Bei OLED-Fehler nur akustisch — die Anzeige selbst ist ja betroffen.

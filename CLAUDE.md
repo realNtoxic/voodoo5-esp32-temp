@@ -92,6 +92,13 @@ Bauteile: ESP32 DevKit, 3x DS18B20, OLED SSD1306 128x64, 2x Noctua NF-A4x10
   setzen und vor jedem `begin()` einen expliziten Praesenz-Check per
   `beginTransmission`/`endTransmission`. Dieselbe Pruefung ist auch
   `hal.oledPresent()` fuer den Health-Monitor.
+- **I2C bleibt nach einem Reset blockiert.** Startet der ESP32 mitten
+  in einer Uebertragung neu (EN-Taste, Watchdog, Brownout), haelt das
+  durchgehend versorgte SSD1306 SDA auf LOW und der Bus ist tot —
+  erkennbar an TIMEOUT (5) statt NACK (2) im Scan. Deshalb ist
+  `i2cRecover()` vor jedem `Wire.begin()` Pflicht, nicht optional: Ein
+  Watchdog-Reset im Betrieb erzeugt exakt diese Situation, und ohne
+  Recovery waere der Monitor danach blind.
 - **`tone()`/`noTone()` sind bei schnell aufeinanderfolgenden Aufrufen
   unzuverlaessig.** Der zweite Ton nach kurzer Pause startet oft nicht
   neu. Toene werden daher per `digitalWrite()`/`delayMicroseconds()` als

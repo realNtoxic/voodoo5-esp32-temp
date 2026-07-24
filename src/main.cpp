@@ -71,13 +71,51 @@ public:
     delay(ms);
   }
 
+  void i2cRecover(uint8_t sdaPin, uint8_t sclPin) override {
+    // Bus-Recovery per Bit-Banging (I2C-Spec-Standardverfahren): Startet
+    // der ESP32 mitten in einer Uebertragung neu, kann das durchgehend
+    // versorgte SSD1306 SDA auf LOW haengen lassen, bis es sein
+    // angefangenes Byte zu Ende getaktet bekommt. Muss VOR Wire.begin()
+    // laufen, solange die Pins noch als einfache GPIOs ansprechbar sind
+    // (nicht bereits vom I2C-Peripheriegeraet belegt).
+    pinMode(sdaPin, INPUT_PULLUP);
+    pinMode(sclPin, OUTPUT);
+    digitalWrite(sclPin, HIGH);
+
+    for (uint8_t i = 0; i < 9 && digitalRead(sdaPin) == LOW; ++i) {
+      digitalWrite(sclPin, LOW);
+      delayMicroseconds(5);
+      digitalWrite(sclPin, HIGH);
+      delayMicroseconds(5);
+    }
+
+    // Explizite STOP-Bedingung: SDA LOW -> SCL HIGH -> SDA HIGH.
+    pinMode(sdaPin, OUTPUT);
+    digitalWrite(sdaPin, LOW);
+    delayMicroseconds(5);
+    digitalWrite(sclPin, HIGH);
+    delayMicroseconds(5);
+    digitalWrite(sdaPin, HIGH);
+    delayMicroseconds(5);
+
+    pinMode(sdaPin, INPUT);
+    pinMode(sclPin, INPUT);
+  }
+
   bool oledInit() override {
+    // Wire.begin() lebt bewusst hier (statt einmalig in setup()), damit
+    // jeder oledInit()-Aufruf -- auch ein periodischer Re-Init durch den
+    // spaeteren Health-Monitor nach OLED-Ausfall -- denselben Ablauf
+    // durchlaeuft: i2cRecover() (siehe selfTestOled()) laeuft dann immer
+    // unmittelbar VOR diesem Wire.begin().
+    Wire.begin();
+    Wire.setTimeOut(50);  // ms; verhindert unbegrenztes Haengen ohne OLED
+
     // Erst pruefen, ob ueberhaupt ein Geraet auf der Adresse antwortet.
     // Ohne angeschlossenes OLED haengen SDA/SCL frei -> ohne diesen
-    // Vorab-Check und Wire.setTimeOut() (siehe setup()) kann der
-    // I2C-Treiber hier unbegrenzt blockieren, statt sauber false zu
-    // liefern, und der Rest des Selbsttests (Fehlerpiepse!) wuerde nie
-    // erreicht.
+    // Vorab-Check und Wire.setTimeOut() kann der I2C-Treiber hier
+    // unbegrenzt blockieren, statt sauber false zu liefern, und der Rest
+    // des Selbsttests (Fehlerpiepse!) wuerde nie erreicht.
     Wire.beginTransmission(OLED_ADDR);
     if (Wire.endTransmission() != 0) {
       oledOk_ = false;
@@ -109,8 +147,6 @@ Esp32Hal hal;
 void setup() {
   Serial.begin(115200);
   pinMode(PIN_SPEAKER, OUTPUT);
-  Wire.begin();
-  Wire.setTimeOut(50);  // ms; verhindert unbegrenztes Haengen ohne OLED
 
   runBootSelfTest(hal);
 }
