@@ -131,12 +131,14 @@ public:
     // unbegrenzt blockieren, statt sauber false zu liefern, und der Rest
     // des Selbsttests (Fehlerpiepse!) wuerde nie erreicht.
     //
-    // Mehrere Versuche mit kurzer Pause: Ein Wackeltest-Scanner, der im
-    // 300-ms-Takt endlos neu scannt, wuerde einen kurz nach dem Poweron-
-    // Reset noch nicht ganz betriebsbereiten SSD1306 (Power-Up-Zeit der
-    // I2C-Logik/Ladungspumpe) nie als Fehler bemerken -- er versucht
-    // einfach weiter. Unser einmaliger Scan direkt nach Wire.begin()
-    // wuerde genau das faelschlich als "nicht gefunden" werten.
+    // Mehrere Versuche mit steigender Pause: Sowohl bei uns als auch im
+    // Wackeltest-Scanner liefert der allererste Scan direkt nach einem
+    // Reset (z. B. ueber EN) reproduzierbar TIMEOUT (5); ab dem naechsten
+    // Versuch klappt es sofort. Ein Einmalversuch wuerde das faelschlich
+    // als "nicht gefunden" werten. Die Pause waechst pro Versuch
+    // (OLED_PROBE_RETRY_DELAY_MS * Versuchsnummer), damit auch ein
+    // Ausreisser mit laengerer Anlaufzeit sicher abgefangen wird, ohne im
+    // Normalfall unnoetig lange zu warten.
     uint8_t i2cResult = 5;
     for (uint8_t attempt = 0; attempt < OLED_PROBE_RETRIES; ++attempt) {
       Wire.beginTransmission(OLED_ADDR);
@@ -146,7 +148,7 @@ public:
       if (i2cResult == 0) {
         break;
       }
-      delay(OLED_PROBE_RETRY_DELAY_MS);
+      delay(OLED_PROBE_RETRY_DELAY_MS * (attempt + 1));
     }
     if (i2cResult != 0) {
       oledOk_ = false;
