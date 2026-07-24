@@ -169,6 +169,13 @@ public:
     oledOk_ = display_.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR);
     if (oledOk_) {
       display_.clearDisplay();
+      // Ohne explizite Farbe/Groesse bleibt Text unsichtbar: Adafruit_GFX
+      // initialisiert textcolor mit 0xFFFF, das die SSD1306-Bibliothek
+      // fuer alles ausser SSD1306_WHITE/SSD1306_INVERSE als Schwarz
+      // interpretiert -> Text auf Schwarz-Hintergrund, also unsichtbar,
+      // obwohl print()/display() klaglos durchlaufen.
+      display_.setTextColor(SSD1306_WHITE);
+      display_.setTextSize(1);
       display_.display();
     }
     return oledOk_;
