@@ -81,13 +81,21 @@ public:
     pinMode(sdaPin, INPUT_PULLUP);
     pinMode(sclPin, OUTPUT);
     digitalWrite(sclPin, HIGH);
+    // Pull-up einschwingen lassen -- ohne das kann ein sofortiges
+    // digitalRead() auf einem eigentlich gesunden, nur noch nicht
+    // aufgeladenen Bus faelschlich LOW liefern und unnoetig Takte
+    // erzeugen.
+    delayMicroseconds(5);
 
-    for (uint8_t i = 0; i < 9 && digitalRead(sdaPin) == LOW; ++i) {
+    uint8_t pulses = 0;
+    for (; pulses < 9 && digitalRead(sdaPin) == LOW; ++pulses) {
       digitalWrite(sclPin, LOW);
       delayMicroseconds(5);
       digitalWrite(sclPin, HIGH);
       delayMicroseconds(5);
     }
+    Serial.printf("i2cRecover: %u Takt(e), SDA danach %s\n", pulses,
+                  digitalRead(sdaPin) == HIGH ? "HIGH" : "LOW");
 
     // Explizite STOP-Bedingung: SDA LOW -> SCL HIGH -> SDA HIGH.
     pinMode(sdaPin, OUTPUT);
@@ -98,8 +106,10 @@ public:
     digitalWrite(sdaPin, HIGH);
     delayMicroseconds(5);
 
-    pinMode(sdaPin, INPUT);
-    pinMode(sclPin, INPUT);
+    // Bus in definiertem Idle-High-Zustand uebergeben (nicht floatend!) --
+    // Wire.begin() erwartet danach ein sauberes High auf beiden Leitungen.
+    pinMode(sdaPin, INPUT_PULLUP);
+    pinMode(sclPin, INPUT_PULLUP);
   }
 
   bool oledInit() override {
@@ -118,7 +128,9 @@ public:
     // unbegrenzt blockieren, statt sauber false zu liefern, und der Rest
     // des Selbsttests (Fehlerpiepse!) wuerde nie erreicht.
     Wire.beginTransmission(OLED_ADDR);
-    if (Wire.endTransmission() != 0) {
+    const uint8_t i2cResult = Wire.endTransmission();
+    Serial.printf("oledInit: Scan 0x%02X -> %u\n", OLED_ADDR, i2cResult);
+    if (i2cResult != 0) {
       oledOk_ = false;
       return false;
     }
