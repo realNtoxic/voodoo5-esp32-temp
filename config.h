@@ -38,6 +38,8 @@ constexpr uint8_t  OLED_WIDTH    = 128;
 constexpr uint8_t  OLED_HEIGHT   = 64;
 constexpr uint32_t I2C_CLOCK_HZ  = 50000;  // langsamer als Standard (100 kHz):
                                             // robuster bei langen Steckbrett-Leitungen
+constexpr uint8_t  OLED_PROBE_RETRIES        = 5;   // Versuche, bis "nicht gefunden"
+constexpr uint16_t OLED_PROBE_RETRY_DELAY_MS = 20;  // Pause zwischen den Versuchen
 constexpr uint32_t SPLASH_MS     = 15000;  // Selbsttest-Bild, dann Dashboard
 
 // -------------------------------------------------------------
