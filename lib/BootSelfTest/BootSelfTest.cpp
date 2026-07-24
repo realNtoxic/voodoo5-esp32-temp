@@ -20,6 +20,10 @@ bool selfTestOled(Hal& hal) {
         hal.delayMs(BEEP_GAP_MS);
       }
     }
+  } else {
+    // Sichtbare Bestaetigung, dass das Display tatsaechlich lebt --
+    // bisher blieb der Bildschirm bei Erfolg nur leer (clearDisplay()).
+    hal.oledShowLine(0, "OLED OK");
   }
   return ok;
 }
