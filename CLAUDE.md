@@ -225,6 +225,64 @@ Hardware-in-the-Loop oder Renode.
 
 ---
 
+## Logging
+
+### Grundsatz (nicht verhandelbar)
+- Logging ist Komfort, nicht Teil des Sicherheitspfads. Faellt Logging
+  aus (Flash voll, WLAN weg, Dateizugriff schlaegt fehl), darf das die
+  Regelung und den Health-Monitor **niemals** beeinflussen.
+- Logging ist strikt nicht-blockierend. Kein Dateizugriff und keine
+  Netzwerkanfrage darf den Regelkreis anhalten (sonst verschiebt sich
+  die Tacho-Messung, wie zuvor bei den Beeps). Datei-/Netz-Arbeit laeuft
+  in einer eigenen FreeRTOS-Task auf Core 0; Regelung und Health-Monitor
+  bleiben auf Core 1.
+
+### Ebene 1 — Serielles Log (Basis)
+- Strukturierte Logzeilen ueber Serial: Zeitstempel (`millis`), je Kanal
+  Temp/Duty/RPM/Status, sowie Fehler-Events (`latched`/`acked`
+  Aenderungen).
+- Festes, maschinenlesbares Format (z. B. CSV-artig), damit der
+  PlatformIO-Filter `log2file` es direkt in eine Datei auf dem Host
+  schreiben kann. Funktioniert nur mit USB.
+- Ausgabe ueber die HAL (z. B. `hal.logLine(...)`), nicht direkt
+  `Serial` im Logikcode — konsistent mit der HAL-Regel.
+
+### Ebene 2 — Persistentes Log auf dem ESP32 (LittleFS)
+- Ringpuffer-Logdatei auf LittleFS; alte Zeilen werden ueberschrieben,
+  damit der Flash nicht volllaeuft.
+- Schreibzyklen schonen: nicht jede Messung sofort committen, sondern
+  gepuffert sammeln und periodisch flushen (Intervall als benannte
+  Konstante, siehe `config.h`).
+- Laeuft unabhaengig vom USB-Anschluss.
+- Fehler beim Dateizugriff werden abgefangen und ignoriert (siehe
+  Grundsatz) — kein Einfluss auf die Regelung.
+
+### Ebene 3 — Abruf im Betrieb ohne Neustart (WLAN, optional, spaeter)
+Als eigener, klar getrennter Baustein zu implementieren, **nachdem**
+Ebene 1 und 2 stehen und stabil sind. Nicht mit der Kernfirmware
+vermischen.
+- Schlanker HTTP-Server als FreeRTOS-Task auf Core 0. Endpunkt liefert
+  die LittleFS-Logdatei auf Abruf (z. B. `GET /log`). Die Regelung im
+  `loop()` laeuft dabei ungestoert weiter.
+- WLAN-Koexistenz beachten: Der ESP sitzt im Metallgehaeuse neben
+  schaltender Elektronik; WLAN kann schwaecheln. Fuer das Log
+  unkritisch, aber es darf keine Annahme geben, dass der Server immer
+  erreichbar ist.
+
+### Konfiguration (`config.h`)
+- `LOG_ENABLED` — Logging global ein-/ausschalten.
+- `LOG_FLUSH_MS` — Flush-Intervall fuer den LittleFS-Ringpuffer.
+- `LOG_RINGBUFFER_BYTES` — maximale Groesse der Logdatei.
+- WLAN-/HTTP-Konstanten fuer Ebene 3 werden erst angelegt, wenn dieser
+  Baustein tatsaechlich gebaut wird.
+
+### Umsetzungsreihenfolge
+1. Ebene 1 (Serial-Log ueber HAL)
+2. Ebene 2 (LittleFS-Ringpuffer)
+3. Ebene 3 (WLAN-Abruf) — separat, spaeter, optional.
+
+---
+
 ## Inbetriebnahme (stufenweise)
 
 1. ESP32 + Speaker — Start-Piep **(erledigt)**

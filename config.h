@@ -175,3 +175,13 @@ static_assert(AKTION1_TIME > ACK_DEBOUNCE_MS,
 // -------------------------------------------------------------
 constexpr uint8_t FAIL_PERSIST = 3;   // Zyklen in Folge bis "echter" Fehler
 constexpr uint8_t WDT_TIMEOUT_S = 8;  // erst NACH dem Selbsttest scharf schalten
+
+// -------------------------------------------------------------
+//  9. LOGGING (siehe CLAUDE.md, Abschnitt "Logging")
+//     Nur Ebene 1 (Serial) und Ebene 2 (LittleFS-Ringpuffer).
+//     WLAN-/HTTP-Konstanten fuer Ebene 3 kommen erst, wenn dieser
+//     Baustein tatsaechlich gebaut wird.
+// -------------------------------------------------------------
+constexpr bool     LOG_ENABLED           = true;   // Logging global ein-/ausschalten
+constexpr uint32_t LOG_FLUSH_MS          = 5000;   // Flush-Intervall LittleFS-Ringpuffer
+constexpr uint32_t LOG_RINGBUFFER_BYTES  = 65536;  // max. Groesse der Logdatei
