@@ -42,4 +42,8 @@ public:
   void oledShowLine(uint8_t row, const char* text) override {
     calls.push_back("oledShowLine:" + std::to_string(row) + ":" + text);
   }
+
+  void setHeartbeatLed(bool on) override {
+    calls.push_back(std::string("setHeartbeatLed:") + (on ? "1" : "0"));
+  }
 };

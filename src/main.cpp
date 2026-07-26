@@ -11,6 +11,7 @@
 #include "config.h"
 #include "Hal.h"
 #include "BootSelfTest.h"
+#include "IDisplay.h"
 
 namespace {
 
@@ -188,9 +189,60 @@ public:
     display_.display();
   }
 
+  void setHeartbeatLed(bool on) override {
+    digitalWrite(PIN_LED, on ? HIGH : LOW);
+  }
+
 private:
   Adafruit_SSD1306 display_;
   bool oledOk_ = false;
+};
+
+// Reale IDisplay-Implementierung fuer das Dashboard (siehe
+// lib/Dashboard/). Eigene Adafruit_SSD1306-Instanz, unabhaengig von
+// Esp32Hal::display_ (die nur fuer die grobe Boot-Selbsttest-Zeile
+// via hal.oledShowLine() gebraucht wird) -- beide teilen sich denselben
+// physischen Bus (globales Wire), das ist unkritisch, da nie beide
+// gleichzeitig zeichnen. Noch NICHT in setup()/loop() instanziiert:
+// dafuer fehlt noch die Datenquelle (Sensor-/Luefter-Regelkreis), die
+// erst in einem spaeteren Schritt entsteht.
+class Esp32Display : public IDisplay {
+public:
+  explicit Esp32Display(TwoWire& wire) : display_(OLED_WIDTH, OLED_HEIGHT, &wire, -1) {}
+
+  bool begin() {
+    return display_.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR);
+  }
+
+  void clear() override {
+    display_.clearDisplay();
+  }
+
+  void drawText(uint8_t x, uint8_t y, const char* s, uint8_t size, bool inverted) override {
+    display_.setTextSize(size);
+    display_.setTextColor(inverted ? SSD1306_BLACK : SSD1306_WHITE);
+    display_.setCursor(x, y);
+    display_.print(s);
+  }
+
+  void fillRect(uint8_t x, uint8_t y, uint8_t w, uint8_t h) override {
+    display_.fillRect(x, y, w, h, SSD1306_WHITE);
+  }
+
+  void hLine(uint8_t y) override {
+    display_.drawFastHLine(0, y, OLED_WIDTH, SSD1306_WHITE);
+  }
+
+  void vLine(uint8_t x) override {
+    display_.drawFastVLine(x, 0, OLED_HEIGHT, SSD1306_WHITE);
+  }
+
+  void present() override {
+    display_.display();
+  }
+
+private:
+  Adafruit_SSD1306 display_;
 };
 
 Esp32Hal hal;
@@ -200,6 +252,10 @@ void setup() {
   pinMode(PIN_SPEAKER, OUTPUT);
 
   runBootSelfTest(hal);
+
+  // GPIO2 ist ein Strapping-Pin -- Ausgang erst NACH dem Selbsttest
+  // konfigurieren (siehe CLAUDE.md "Dashboard-Anzeige & Meldekanaele").
+  pinMode(PIN_LED, OUTPUT);
 }
 
 void loop() {

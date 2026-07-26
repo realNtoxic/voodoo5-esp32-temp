@@ -32,4 +32,9 @@ public:
 
   virtual bool oledInit() = 0;
   virtual void oledShowLine(uint8_t row, const char* text) = 0;
+
+  // Dritter, display-unabhaengiger Meldekanal (PIN_LED, siehe
+  // config.h). Erst NACH abgeschlossenem Boot-Selbsttest ansteuern --
+  // GPIO2 ist ein Strapping-Pin.
+  virtual void setHeartbeatLed(bool on) = 0;
 };

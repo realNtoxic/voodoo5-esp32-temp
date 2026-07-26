@@ -27,10 +27,14 @@ pio device monitor -b 115200
 ## Projektstruktur
 
 ```
+lib/Hal/              Gemeinsame Hal-Schnittstelle (BootSelfTest, AckButton, ...)
 lib/BootSelfTest/     Reine Logik, KEIN Arduino.h  -> nativ testbar
-lib/FanControl/       Kennlinie, Hysterese, Kickstart
+lib/FanControl/       Kennlinie, Hysterese, Kickstart (bisher nur Ambient-Panik)
 lib/AckButton/        Taster-Zustandsautomat
 lib/Health/           Runtime-Monitor, Latch, Alarm
+lib/Dashboard/        Anzeige-Layout + Render-Logik, ueber IDisplay testbar
+lib/SelfDiag/         Freie Diagnose-Zeile (Heap/Loop-Hz), Komfort
+lib/StatusLed/        Heartbeat-Grundzustand fuer die LED (GPIO2)
 src/main.cpp          Reale HAL-Implementierung, nur env:esp32
 test/                 Unity-Tests mit FakeHal
 config.h              Zentrale Konfiguration
@@ -280,6 +284,90 @@ vermischen.
 1. Ebene 1 (Serial-Log ueber HAL)
 2. Ebene 2 (LittleFS-Ringpuffer)
 3. Ebene 3 (WLAN-Abruf) — separat, spaeter, optional.
+
+---
+
+## Dashboard-Anzeige & Meldekanaele
+
+### Dashboard-Klasse (`lib/Dashboard/`)
+- Zeichnet ausschliesslich ueber `IDisplay`
+  (`clear/drawText/fillRect/hLine/vLine/present`) — kein direkter
+  `Adafruit_SSD1306`-Zugriff in der Logik, dadurch nativ mit
+  `FakeDisplay` testbar. Reale Umsetzung (`Esp32Display` in
+  `src/main.cpp`) kapselt `Adafruit_SSD1306`, ist aber noch nicht in
+  `setup()/loop()` verdrahtet — dafuer fehlt die Sensor-/Luefter-
+  Datenquelle, die erst in einem spaeteren Schritt entsteht.
+- `Dashboard::render(const DashboardData&, uint8_t phase)` zeichnet zwei
+  Zeilentypen: die Kanal-Zeilen (4 Spalten x 4 Zeilen nach
+  `COL_X`/`ROW_Y`) und die freie SelfDiag-Zeile (Zeile 5, `SELFDIAG_Y`,
+  volle Breite, ausserhalb des Rasters).
+- Rechts der Amb-Spalte (ab x ≈ 105) bleiben bewusst ~23 px frei — Platz
+  fuer eine moegliche 4. Datenspalte spaeter.
+
+### Layout-Regeln
+- Feste Zellbreiten (`CELL_W`). Eine invertierte Zelle (Warn/Err) fuellt
+  sich per `fillRect` (1 px Luft oben, Hoehe `8*size+1`); die Fuellbreite
+  wird IMMER an der naechsten Spaltengrenze geclippt (`invertFillWidth()`,
+  min(`CELL_W`, Luecke zur naechsten Spalte bzw. zum Bildschirmrand bei
+  der letzten Spalte)) — eine Invert-Markierung laeuft nie in die
+  Nachbarzelle.
+- Trennlinien nur INNEN, nie vor der ersten oder nach der letzten
+  Zeile/Spalte: `HEADER_UNDERLINE` unterstreicht die Kopfzeile, `HSEP`
+  trennt die uebrigen Datenzeilen, `VSEP` (Default aus) trennt Spalten
+  mittig in der Luecke. Horizontale Linien liegen 1 px oberhalb der
+  jeweils folgenden Zeile.
+
+### Statuszellen
+- `cellInverted(status, phase)`: `Warn` -> immer invertiert; `Err` ->
+  blinkt im Takt von `phase` (`phase != 0`); `Ok`/`Idle` -> nie.
+- Gilt jetzt fuer ALLE drei Kanaele inkl. Ambient — Ambient ist nicht
+  mehr fest auf `NA` gesetzt, sondern durchlaeuft dieselbe Ok/Warn/Err-
+  Logik wie VSA1/VSA2 (siehe "Ambient-Umbau" unten). Die rpm-Zelle
+  bleibt fuer Ambient trotzdem immer "-": Ambient hat schlicht keinen
+  Luefter.
+
+### Lebenszeichen (Zelle 0;0)
+`heartbeatChar(phase)`: `phase != 0` -> `HEARTBEAT_A`, sonst
+`HEARTBEAT_B`. **Wichtig:** `phase` kommt ausschliesslich aus dem
+Regelkreis (Hauptloop, bevorzugt ein Zaehler, der pro erfolgreichem
+Sensor-/Regelzyklus erhoeht wird), niemals aus einem eigenen
+Display-Timer. Ein eigener Timer wuerde weiterlaufen, selbst wenn der
+Sensorpfad haengt — das Lebenszeichen beweist Liveness nur, wenn sein
+Takt tatsaechlich aus dem ueberwachten Kreislauf stammt.
+
+### Ambient-Umbau (Regelungslogik — Referenz, Health-Monitor existiert noch nicht)
+Ambient durchlaeuft (sobald der Health-Monitor existiert) dieselbe
+Plausibilitaets- und Latch-Logik wie VSA1/VSA2 (-127 °C = weg, 85.00 °C
+nur vor abgeschlossener Conversion gueltig, eingefroren ueber N Zyklen,
+CRC-Retry) und bekommt Status Ok/Warn/Err statt fest NA. WARN bedeutet
+bei Ambient etwas anderes als bei VSA: "Gehaeuse-Innenraum zu heiss", ab
+`AMB_WARN_C`, mit Hysterese zurueck unter `AMB_WARN_OFF_C` (siehe
+`lib/FanControl/ambientPanicActive()`, bereits implementiert und
+getestet). Bei aktiver Panik gehen beide VSA-Luefter vorsorglich auf
+100 % — effektive Duty = `max(Kennlinie, Panik)` (`effectiveDuty()`),
+das gewinnt gegen die normale Kennlinie. Ambient-Err wird gelatcht und
+alarmiert wie bei VSA, hat aber keinen eigenen Luefter (keine
+Luefter-Fail-Safe) und deaktiviert mangels gueltigem Wert die
+Panik-Uebersteuerung. Die Verdrahtung in den echten Health-Monitor/
+Regelkreis folgt erst, wenn diese Module gebaut werden.
+
+### SelfDiag (`lib/SelfDiag/`, Komfort)
+Formatiert freien Heap und Loop-Frequenz zu einer Zeile (z. B.
+"Heap 142k 45Hz") fuer `DashboardData.selfLine`. Wie Logging: Komfort,
+nicht im kritischen Regelpfad — faellt das Auslesen aus, darf das die
+Regelung nicht beeinflussen.
+
+### LED (`PIN_LED`, GPIO2) — dritter, display-unabhaengiger Meldekanal
+Default: Heartbeat, getrieben vom selben Regelkreis-`phase` wie das
+OLED-Lebenszeichen (`heartbeatLedOn()`, bereits implementiert) —
+funktioniert auch bei totem OLED. Fehlerfall (gelatchter, nicht
+quittierter Fehler): unterscheidbares Blinkmuster synchron zum
+Alarmton statt ruhigem Heartbeat — folgt, sobald Latch/Alarm real
+existiert. LED und Speaker sind beide in Software nicht verifizierbar,
+signalisieren aber bewusst Unterschiedliches (Muster vs. Ton) und
+ergaenzen sich statt sich zu ersetzen. GPIO2 ist ein Strapping-Pin:
+erst NACH dem Boot-Selbsttest als Ausgang konfigurieren
+(`hal.setHeartbeatLed()`).
 
 ---
 

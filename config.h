@@ -185,3 +185,41 @@ constexpr uint8_t WDT_TIMEOUT_S = 8;  // erst NACH dem Selbsttest scharf schalte
 constexpr bool     LOG_ENABLED           = true;   // Logging global ein-/ausschalten
 constexpr uint32_t LOG_FLUSH_MS          = 5000;   // Flush-Intervall LittleFS-Ringpuffer
 constexpr uint32_t LOG_RINGBUFFER_BYTES  = 65536;  // max. Groesse der Logdatei
+
+// -------------------------------------------------------------
+//  10. DASHBOARD-LAYOUT (aus OLED Dashboard Test)
+//      4 Spalten (Label, VSA1, VSA2, Amb) x 4 Zeilen (Kopf, Temp,
+//      rpm, Status), feste Zellbreiten. Rechts der Amb-Spalte
+//      (ab x ≈ 105) bleiben ~23 px frei -- bewusst reserviert fuer
+//      eine moegliche 4. Datenspalte spaeter.
+// -------------------------------------------------------------
+constexpr uint8_t COL_X[4]  = { 0, 27, 54, 81 };   // Label, VSA1, VSA2, Amb
+constexpr uint8_t CELL_W[4] = { 24, 24, 24, 24 };  // feste Zellbreiten (px)
+constexpr uint8_t ROW_Y[4]  = { 0, 13, 25, 37 };   // Kopf, Temp, rpm, Status
+constexpr uint8_t TXT_SIZE_HEAD = 1;
+constexpr uint8_t TXT_SIZE_VAL  = 1;
+constexpr bool    HEADER_UNDERLINE = true;
+constexpr bool    VSEP = false;
+constexpr bool    HSEP = true;
+// Regeln: WARN-Zelle invertiert (statisch), ERR-Zelle blinkt (Takt = BLINK_MS)
+constexpr uint16_t BLINK_MS = 500;
+constexpr char HEARTBEAT_A = '|';
+constexpr char HEARTBEAT_B = '-';
+// SelfDiag: freie Textzeile ueber volle Breite (Zeile 5), ausserhalb des Rasters
+constexpr bool    SELFDIAG_ROW = true;
+constexpr uint8_t SELFDIAG_Y   = 56;
+
+// -------------------------------------------------------------
+//  11. AMBIENT-SCHWELLEN
+//      Eigene Bedeutung: Gehaeuse-Innenraum, keine VSA-Kurvenschwelle.
+// -------------------------------------------------------------
+constexpr float AMB_WARN_C     = 48.0f;  // darueber: Gehaeuse zu heiss -> Panik
+constexpr float AMB_WARN_OFF_C = 43.0f;  // 5K Hysterese gegen Pumpen der Panik-Stufe
+
+static_assert(AMB_WARN_OFF_C < AMB_WARN_C,
+  "AMB_WARN_OFF_C muss unter AMB_WARN_C liegen (Hysterese)");
+
+// -------------------------------------------------------------
+//  12. LED (Onboard, GPIO2)
+// -------------------------------------------------------------
+constexpr uint8_t PIN_LED = 2;  // Strapping-Pin, nach Boot als Ausgang unkritisch
