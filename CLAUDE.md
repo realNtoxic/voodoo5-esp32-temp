@@ -70,18 +70,22 @@ Arduino-Includes aus dem nativen Build raus.
 Siehe `schaltplan_esp32_voodoo5.svg` im Repo.
 
 | GPIO | Funktion | Beschaltung |
-|------|-------------------|-------------------------------|
-| 4    | 1-Wire DS18B20 x3 | 4,7k Pull-up -> 3V3 |
-| 18   | Luefter 1 PWM     | direkt, 25 kHz |
-| 19   | Luefter 2 PWM     | direkt, 25 kHz |
-| 32   | Luefter 1 Tacho   | 10k Pull-up -> 3V3 |
-| 33   | Luefter 2 Tacho   | 10k Pull-up -> 3V3 |
-| 21   | I2C SDA (OLED)    | 0x3C |
-| 22   | I2C SCL (OLED)    | |
-| 25   | PC-Speaker        | 1k -> BC547, 1N4148 Freilauf |
-| 27   | Ack-Taster        | INPUT_PULLUP, gegen GND |
+|------|-------------------------------------------------------------|-------------------------------------------------------------|
+| 4    | 1-Wire Bus (5x DS18B20: VSA1.1, VSA1.2, VSA2.1, VSA2.2, AMB) | 4,7k Pull-up -> 3V3 |
+| 18   | PWM1 (Luefter VSA1 Rueckseite / Zone A)                      | direkt, 25 kHz |
+| 32   | TACHO1 (Luefter VSA1 Rueckseite)                             | 10k Pull-up -> 3V3 |
+| 19   | PWM2 (Luefter VSA2 Rueckseite / Zone B)                      | direkt, 25 kHz |
+| 33   | TACHO2 (Luefter VSA2 Rueckseite)                             | 10k Pull-up -> 3V3 |
+| 23   | PWM3 (Luefter VSA1 Vorderseite, NEU)                         | direkt, 25 kHz |
+| 34   | TACHO3 (Luefter VSA1 Vorderseite, NEU)                       | 10k Pull-up -> 3V3, **extern** (GPIO34 ist Input-only, kein interner Pull-up) |
+| 26   | PWM4 (Luefter VSA2 Vorderseite, NEU)                         | direkt, 25 kHz |
+| 35   | TACHO4 (Luefter VSA2 Vorderseite, NEU)                       | 10k Pull-up -> 3V3, **extern** (GPIO35 ist Input-only, kein interner Pull-up) |
+| 21   | I2C SDA (OLED SSD1306)                                       | 0x3C |
+| 22   | I2C SCL (OLED SSD1306)                                       | |
+| 25   | PC-Speaker (Basis BC547 Treiberstufe)                        | 1k -> BC547, 1N4148 Freilauf |
+| 27   | Ack-Taster                                                   | INPUT_PULLUP, gegen GND |
 
-Bauteile: ESP32 DevKit, 3x DS18B20, OLED SSD1306 128x64, 2x Noctua NF-A4x10
+Bauteile: ESP32 DevKit, 5x DS18B20, OLED SSD1306 128x64, 4x Noctua NF-A4x10
 **5V** PWM, BC547, 1N4148, PC-Speaker, Taster 16 mm momentary.
 
 **Fallen:**
@@ -144,6 +148,12 @@ Ambient hat weder rpm noch Status -> `-` (Sentinel `rpm = -1`,
 Semi-passiv. Unter 40 C stehen die Luefter (0 %). Ab 45 C Kickstart 30 % /
 300 ms, dann linear 20 % (45 C) bis 100 % (70 C). 5 K Hysterese-Totband
 gegen Pumpen. Eine Kurve fuer beide Zonen.
+
+4 unabhaengige PWM/Tacho-Kanaele statt 2: VSA1 und VSA2 haben jeweils
+einen Luefter Rueckseite (PWM1/TACHO1, PWM2/TACHO2) und einen Luefter
+Vorderseite (PWM3/TACHO3, PWM4/TACHO4), getrennt regelbar. Alle vier
+Luefter teilen sich einen gemeinsamen Molex-Stromanschluss — nur die
+PWM-/Tacho-Signale sind pro Luefter separat.
 
 ### Status je Kanal
 `Idle` = Luefter aus und unter Einschaltschwelle ·
