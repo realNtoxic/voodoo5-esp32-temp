@@ -3,7 +3,7 @@
 Firmware zur Temperaturueberwachung und Luefterregelung einer 3dfx Voodoo 5 5500
 (zwei VSA-100-Chips) in einem Retro-Gaming-Rechner. Der ESP32 sitzt als
 eigenstaendiger Monitor im Gehaeuse, misst per DS18B20 die Chiptemperaturen,
-regelt zwei Noctua-Luefter und meldet Fehler per OLED und PC-Speaker.
+regelt vier Noctua-Luefter und meldet Fehler per OLED und PC-Speaker.
 
 Sprache in Kommentaren, Commit-Messages und Antworten: **Deutsch**.
 
@@ -29,7 +29,8 @@ pio device monitor -b 115200
 ```
 lib/Hal/              Gemeinsame Hal-Schnittstelle (BootSelfTest, AckButton, ...)
 lib/BootSelfTest/     Reine Logik, KEIN Arduino.h  -> nativ testbar
-lib/FanControl/       Kennlinie, Hysterese, Kickstart (bisher nur Ambient-Panik)
+lib/FanControl/       Kennlinie (curveDuty), Ambient-Panik, Sensor-Fail-Safe
+lib/SensorCal/        Sensor-Offset-Kalibrierung (rawC -> calC)
 lib/AckButton/        Taster-Zustandsautomat
 lib/Health/           Runtime-Monitor, Latch, Alarm
 lib/Dashboard/        Anzeige-Layout + Render-Logik, ueber IDisplay testbar
@@ -53,7 +54,7 @@ Arduino-Includes aus dem nativen Build raus.
    `Hal`-Interface (virtuelle Methoden). Logik ruft niemals direkt `tone()`,
    `digitalWrite()`, `Wire` oder `sensors.*` auf.
 2. **`config.h` bleibt Arduino-frei.** Nur `<cstdint>`, keine Bibliothekstypen.
-   ROM-Adressen liegen als `uint8_t[3][8]`, nicht als `DeviceAddress`.
+   ROM-Adressen liegen als `uint8_t[5][8]`, nicht als `DeviceAddress`.
 3. **Kennlinienfunktionen sind rein.** `curveDuty()` bekommt Temperatur und
    vorherigen Zustand herein und gibt Duty zurueck — keine Seiteneffekte,
    keine Zeitabhaengigkeit. Zeitliche Vorgaenge (Kickstart, Splash, Ack)
@@ -92,7 +93,7 @@ Bauteile: ESP32 DevKit, 5x DS18B20, OLED SSD1306 128x64, 4x Noctua NF-A4x10
 - Pull-ups **immer gegen 3,3 V**, nie gegen 5 V (Tacho ist Open Collector).
 - Luefter sind die **5V-Variante** — Molex rot, nicht gelb.
 - Molex-GND und ESP32-GND muessen verbunden sein, sonst kein Tacho-Bezug.
-- DS18B20 **nicht** parasitaer speisen, alle drei mit VDD.
+- DS18B20 **nicht** parasitaer speisen, alle fuenf mit VDD.
 - **I2C blockiert ohne angeschlossenes Geraet.** Haengen SDA/SCL frei in
   der Luft, kann `Wire` auf dem ESP32 unbegrenzt blockieren statt "kein
   Geraet" zu melden. Der Selbsttest haengt dann in `oledInit()` fest,
@@ -112,14 +113,23 @@ Bauteile: ESP32 DevKit, 5x DS18B20, OLED SSD1306 128x64, 4x Noctua NF-A4x10
   neu. Toene werden daher per `digitalWrite()`/`delayMicroseconds()` als
   Rechteck erzeugt. LEDC wurde bewusst verworfen (API unterscheidet sich
   je nach Core-Version: `ledcAttach` vs. `ledcSetup`/`ledcAttachPin`).
+- **Alle 4 Tacho-Kanaele brauchen einen externen 10k-Pull-up, auch
+  GPIO32/33.** GPIO34/35 sind Input-only ohne internen Pull-up — dort
+  ist der externe Widerstand zwingend. GPIO32/33 koennten sich
+  theoretisch auf den internen ESP32-Pull-up verlassen, bekommen aber
+  bewusst denselben externen 10k-Pull-up spendiert: intern **und**
+  extern parallel ist unkritisch, vereinheitlicht aber das Layout aller
+  vier Kanaele.
 
 ---
 
 ## Funktionsuebersicht
 
 ### Boot-Selbsttest
-Start-Piep -> OLED -> Sensoren (VSA1, VSA2, AMB per ROM-Adresse) ->
-Luefter einzeln (1, dann 2; PWM 100 %, Anlaufzeit, Tacho verifizieren).
+Start-Piep -> OLED -> Sensoren (VSA1.1, VSA1.2, VSA2.1, VSA2.2, AMB per
+ROM-Adresse) -> Luefter einzeln (1, 2, 3, 4 nacheinander; PWM 100 %,
+Anlaufzeit, Tacho verifizieren) — die Zuordnung ergibt sich eindeutig
+aus dem Einzel-Anlauf, nicht durch Zonen-Vergleich.
 Fehler: Beep-Code (2 = OLED, 3 = Sensor, 4 = Luefter) **und** OLED-Zeile.
 Bei OLED-Fehler nur akustisch.
 
@@ -130,43 +140,91 @@ Scannt den Bus, gibt Adressen paste-fertig ueber Serial aus, zeigt "SETUP"
 auf dem OLED. **Faehrt bewusst nicht in den Regelbetrieb** — ohne
 Rollenzuordnung koennte der Ambient-Sensor als VSA gelesen werden.
 
+Rollen: `0 = VSA1.1`, `1 = VSA1.2`, `2 = VSA2.1`, `3 = VSA2.2`, `4 = AMB`
+(siehe `config.h` `ROLE_*`). Jede Sonde einzeln anwaermen und beobachten,
+welche ROM-Adresse reagiert. Bei 5 Sonden ist die sofortige physische
+Markierung nach der Zuordnung noch kritischer als bei 3: Eine Verwechslung
+bedeutet, dass ein Luefter auf dem falschen Chip regelt (siehe
+"Regelmodell").
+
 ### Anzeige (zwei Phasen)
 - 0–15 s: Selbsttest-Diagnosebild
-- danach: Dashboard, 4 Spalten x 3 Zeilen
+- danach: Dashboard, 4 Spalten x 4 Zeilen (Kopf, T, rpm, Status) plus
+  eine freie SelfDiag-Zeile ausserhalb des Rasters (siehe
+  "Dashboard-Anzeige & Meldekanaele")
 
 ```
-        #1    #2   #Amb
-T C     30    35    20
-rpm      0   150     -
-Sta   idle    OK     -
+    #1    #2   #Amb
+T C 30    35    20
+rpm  0   150     -
+Sta idle  OK    OK
 ```
 
-Ambient hat weder rpm noch Status -> `-` (Sentinel `rpm = -1`,
-`ChStatus::NA`). Umschaltung ueber `millis()`, kein `delay(15000)`.
+(Zelle 0;0 der Kopfzeile zeigt das Lebenszeichen `heartbeatChar(phase)`,
+nicht dargestellt im Mockup.)
+
+Ambient hat KEINE rpm (kein Luefter -> `-`, Sentinel `rpm = -1`), aber
+vollen Status `Ok`/`Warn`/`Err` wie VSA1/VSA2 — siehe "Ambient-Umbau".
+Umschaltung ueber `millis()`, kein `delay(15000)`.
 
 ### Regelung
 Semi-passiv. Unter 40 C stehen die Luefter (0 %). Ab 45 C Kickstart 30 % /
 300 ms, dann linear 20 % (45 C) bis 100 % (70 C). 5 K Hysterese-Totband
-gegen Pumpen. Eine Kurve fuer beide Zonen.
+gegen Pumpen. Dieselbe Kurve (`curveDuty()`) wird viermal unabhaengig
+angewandt — siehe "Regelmodell".
 
-4 unabhaengige PWM/Tacho-Kanaele statt 2: VSA1 und VSA2 haben jeweils
-einen Luefter Rueckseite (PWM1/TACHO1, PWM2/TACHO2) und einen Luefter
-Vorderseite (PWM3/TACHO3, PWM4/TACHO4), getrennt regelbar. Alle vier
-Luefter teilen sich einen gemeinsamen Molex-Stromanschluss — nur die
-PWM-/Tacho-Signale sind pro Luefter separat.
+### Regelmodell
+4 unabhaengige Regelkreise, Zuordnung 1:1:1 (**kein** Zonen-Mischen,
+**kein** Max/Mittelwert ueber mehrere Sonden):
+
+| Sensor | Luefter | Kanal |
+|--------|---------|-------|
+| VSA1.1 | Luefter 1 (PWM1/TACHO1) | VSA1 Rueckseite / Zone A |
+| VSA1.2 | Luefter 3 (PWM3/TACHO3) | VSA1 Vorderseite |
+| VSA2.1 | Luefter 2 (PWM2/TACHO2) | VSA2 Rueckseite / Zone B |
+| VSA2.2 | Luefter 4 (PWM4/TACHO4) | VSA2 Vorderseite |
+
+Jeder Luefter reagiert **nur** auf seinen zugeordneten Sensor. Dieselbe
+reine `curveDuty()`-Logik (Hysterese, Kickstart, Semi-Passiv) gilt pro
+Kreis, unabhaengig voneinander. Kennlinienparameter (`CURVE` in
+`config.h`) bleiben gemeinsam, sofern nicht spaeter pro Kanal abweichend
+gewuenscht.
+
+Der 5. Sensor (AMB) ist **kein** eigener Regelkreis, sondern speist
+ausschliesslich die Panik-Uebersteuerung (`ambientPanicActive()` /
+`effectiveDuty()`, siehe "Ambient-Umbau"). Bei Panik-Ausloesung gehen
+**alle vier** Luefter auf 100 % (`max(Kurve, Panik)` je Kanal).
+
+Alle vier Luefter teilen sich einen gemeinsamen Molex-Stromanschluss —
+nur die PWM-/Tacho-Signale sind pro Luefter separat.
+
+### Sensor-Kalibrierung (Offset)
+`SENSOR_OFFSET_C[5]` (config.h) haelt das per Waermebildkamera bestimmte
+Delta zwischen Sondenposition (Kuehlkoerper-/BGA-nah) und echter
+BGA-Temperatur, einen Wert je Sensor-Rolle. **Regel:** Der Offset ist
+eine reine Regel-/Anzeige-Groesse. Die Rohtemperatur geht immer
+unveraendert ins Log (Ebene 1/2), der Offset darf sie dort **niemals**
+ueberschreiben — sonst geht bei einer spaeteren Nachkalibrierung die
+Historie verloren. Also: `rawC` -> Log; `calC = rawC + SENSOR_OFFSET_C[i]`
+-> Regelung/Anzeige (`applySensorOffset()`).
 
 ### Status je Kanal
 `Idle` = Luefter aus und unter Einschaltschwelle ·
 `Ok` = regelt normal ·
-`Warn` = ab `WARN_C` ·
-`Err` = Sensor antwortet nicht oder kein Tacho trotz Duty ·
-`NA` = Ambient
+`Warn` = ab `WARN_C` (bei Ambient: ab `AMB_WARN_C`) ·
+`Err` = Sensor antwortet nicht oder kein Tacho trotz Duty
+
+Ambient durchlaeuft dieselben vier Status wie VSA1.1/VSA1.2/VSA2.1/VSA2.2
+(kein fest verdrahteter `NA`-Status mehr, siehe "Ambient-Umbau"). Nur die
+rpm-Zelle bleibt fuer Ambient immer `-` (Sentinel `rpm = -1`) — Ambient
+hat schlicht keinen eigenen Luefter, unabhaengig vom Status.
 
 ### Health-Monitor (Runtime)
 Laeuft in jedem Regelzyklus, nicht nur beim Boot.
 - Sensor: `-127 C` = weg; `85.00 C` nur vor abgeschlossener Conversion gueltig;
   unveraenderter Wert ueber N Zyklen = eingefroren; einzelne CRC-Fehler ->
-  Retry, erst wiederholte zaehlen.
+  Retry, erst wiederholte zaehlen. Gilt fuer alle 5 Sonden (VSA1.1,
+  VSA1.2, VSA2.1, VSA2.2, AMB) gleichermassen.
 - Luefter: Tacho **gegen kommandierte Duty** pruefen. `duty == 0` und
   `rpm == 0` ist korrekt (Semi-Passiv), kein Alarm.
 - OLED: I2C-Adresse aktiv nachpollen, Ausfall nicht kritisch.
@@ -175,8 +233,13 @@ Laeuft in jedem Regelzyklus, nicht nur beim Boot.
 Entprellung ueber `FAIL_PERSIST` Zyklen.
 
 ### Fail-Safe
-- VSA-Sensor weg -> zugehoerigen Luefter auf **100 %** (Worst Case annehmen)
-- Luefter weg trotz Duty -> Alarm, anderen Luefter auf 100 %
+- Sensorausfall -> **nur** der zugeordnete Luefter dieses Regelkreises auf
+  100 % (Worst Case annehmen, `channelFailSafeDuty()`). Die anderen drei
+  Kreise regeln unveraendert weiter — pro Kreis unabhaengig, **keine**
+  2-Kanal-Kopplung mehr.
+- Luefter weg trotz Duty -> Alarm. Pro Kreis unabhaengig: keine
+  automatische Kompensation durch einen anderen Kreis mehr (das war
+  2-Kanal-Logik mit genau einem "anderen" Luefter).
 - OLED weg -> weiterregeln, Alarm nur akustisch, `oledInit()` periodisch neu
 
 Der Monitor ist **passiv** — er kann die Grafikkarte nicht abschalten.
@@ -347,19 +410,20 @@ Takt tatsaechlich aus dem ueberwachten Kreislauf stammt.
 
 ### Ambient-Umbau (Regelungslogik — Referenz, Health-Monitor existiert noch nicht)
 Ambient durchlaeuft (sobald der Health-Monitor existiert) dieselbe
-Plausibilitaets- und Latch-Logik wie VSA1/VSA2 (-127 °C = weg, 85.00 °C
-nur vor abgeschlossener Conversion gueltig, eingefroren ueber N Zyklen,
-CRC-Retry) und bekommt Status Ok/Warn/Err statt fest NA. WARN bedeutet
-bei Ambient etwas anderes als bei VSA: "Gehaeuse-Innenraum zu heiss", ab
-`AMB_WARN_C`, mit Hysterese zurueck unter `AMB_WARN_OFF_C` (siehe
-`lib/FanControl/ambientPanicActive()`, bereits implementiert und
-getestet). Bei aktiver Panik gehen beide VSA-Luefter vorsorglich auf
-100 % — effektive Duty = `max(Kennlinie, Panik)` (`effectiveDuty()`),
-das gewinnt gegen die normale Kennlinie. Ambient-Err wird gelatcht und
-alarmiert wie bei VSA, hat aber keinen eigenen Luefter (keine
-Luefter-Fail-Safe) und deaktiviert mangels gueltigem Wert die
-Panik-Uebersteuerung. Die Verdrahtung in den echten Health-Monitor/
-Regelkreis folgt erst, wenn diese Module gebaut werden.
+Plausibilitaets- und Latch-Logik wie die vier VSA-Sonden (-127 °C = weg,
+85.00 °C nur vor abgeschlossener Conversion gueltig, eingefroren ueber N
+Zyklen, CRC-Retry) und bekommt Status Ok/Warn/Err statt fest NA. WARN
+bedeutet bei Ambient etwas anderes als bei VSA: "Gehaeuse-Innenraum zu
+heiss", ab `AMB_WARN_C`, mit Hysterese zurueck unter `AMB_WARN_OFF_C`
+(siehe `lib/FanControl/ambientPanicActive()`, bereits implementiert und
+getestet). Bei aktiver Panik gehen **alle vier** Luefter vorsorglich auf
+100 % (nicht nur zwei — siehe "Regelmodell") — effektive Duty =
+`max(Kennlinie, Panik)` je Kanal (`effectiveDuty()`), das gewinnt gegen
+die normale Kennlinie. Ambient-Err wird gelatcht und alarmiert wie bei
+VSA, hat aber keinen eigenen Luefter (keine Luefter-Fail-Safe) und
+deaktiviert mangels gueltigem Wert die Panik-Uebersteuerung. Die
+Verdrahtung in den echten Health-Monitor/Regelkreis folgt erst, wenn
+diese Module gebaut werden.
 
 ### SelfDiag (`lib/SelfDiag/`, Komfort)
 Formatiert freien Heap und Loop-Frequenz zu einer Zeile (z. B.
@@ -386,8 +450,12 @@ erst NACH dem Boot-Selbsttest als Ausgang konfigurieren
 1. ESP32 + Speaker — Start-Piep **(erledigt)**
 2. + OLED — Selbsttest-Anzeige, inkl. verifiziertem Fehlerpfad
    (fehlendes OLED -> Fehlerbeep) **(erledigt)**
-3. + DS18B20 **auf dem Steckbrett** — Discovery, Adressen zuordnen,
-   Sensoren **sofort physisch markieren** **(naechster Schritt)**
-4. + Luefter — **zuerst nur einen** anschliessen, damit die Zuordnung
-   1/2 eindeutig ist
+3. + DS18B20 **auf dem Steckbrett** — Discovery, Adressen den 5 Rollen
+   zuordnen (VSA1.1, VSA1.2, VSA2.1, VSA2.2, AMB), Sensoren **sofort
+   physisch markieren** **(naechster Schritt)**
+4. + Luefter — **einzeln nacheinander** anschliessen (1, dann 2, 3, 4),
+   damit jeder Kanal eindeutig zugeordnet ist (siehe "Regelmodell": kein
+   Zonen-Vergleich, PWM/TACHO sind ohnehin pro Luefter fest verdrahtet).
+   Luefter und die beiden zusaetzlichen Sensoren sind aktuell in
+   Beschaffung.
 5. Erst dann: Sensoren auf die Karte, Halter drucken, Einbau

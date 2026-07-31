@@ -25,9 +25,15 @@ struct FanCfg { uint8_t pwmPin; uint8_t tachoPin; };
 
 // Reine Beschriftung. Welcher Rotor physisch "1" ist, zeigt die
 // Anlaufsequenz im Selbsttest. Steckertausch = Aenderung hier.
-constexpr FanCfg FAN[2] = {
-  { 18, 32 },   // Luefter 1 / Zone A
-  { 19, 33 },   // Luefter 2 / Zone B
+// 4 unabhaengige Kanaele (siehe CLAUDE.md "Regelmodell"): VSA1/VSA2
+// haben je einen Luefter Rueckseite und einen Vorderseite. Alle vier
+// teilen sich einen gemeinsamen Molex-Stromanschluss, nur PWM/Tacho
+// sind pro Luefter separat.
+constexpr FanCfg FAN[4] = {
+  { 18, 32 },   // Luefter 1: VSA1 Rueckseite / Zone A
+  { 19, 33 },   // Luefter 2: VSA2 Rueckseite / Zone B
+  { 23, 34 },   // Luefter 3: VSA1 Vorderseite
+  { 26, 35 },   // Luefter 4: VSA2 Vorderseite
 };
 
 // -------------------------------------------------------------
@@ -62,17 +68,22 @@ static_assert(SENSOR_POLL_MS >= SENSOR_CONV_MS,
 static_assert(SENSOR_RES_BITS >= 9 && SENSOR_RES_BITS <= 12,
   "SENSOR_RES_BITS muss zwischen 9 und 12 liegen");
 
-// Rollen: 0 = VSA1 (Spalte #1), 1 = VSA2 (Spalte #2), 2 = Ambient
-constexpr uint8_t ROLE_VSA1 = 0;
-constexpr uint8_t ROLE_VSA2 = 1;
-constexpr uint8_t ROLE_AMB  = 2;
+// Rollen: 5 Sonden, 1:1 einem Regelkreis zugeordnet (siehe CLAUDE.md
+// "Regelmodell") -- ausser AMB, die speist nur die Panik-Uebersteuerung.
+constexpr uint8_t ROLE_VSA1_1 = 0;  // VSA1 Rueckseite -> Luefter 1
+constexpr uint8_t ROLE_VSA1_2 = 1;  // VSA1 Vorderseite -> Luefter 3
+constexpr uint8_t ROLE_VSA2_1 = 2;  // VSA2 Rueckseite -> Luefter 2
+constexpr uint8_t ROLE_VSA2_2 = 3;  // VSA2 Vorderseite -> Luefter 4
+constexpr uint8_t ROLE_AMB    = 4;  // kein eigener Regelkreis
 
 // ROM-Adressen NACH der Discovery hier eintragen.
 // Solange Nullen drinstehen, schlaegt die CRC-Pruefung fehl und die
 // Firmware startet automatisch im Discovery-Modus (kein Regelbetrieb).
-constexpr uint8_t SENSOR_ROM[3][8] = {
-  { 0x28, 0, 0, 0, 0, 0, 0, 0 },   // VSA1
-  { 0x28, 0, 0, 0, 0, 0, 0, 0 },   // VSA2
+constexpr uint8_t SENSOR_ROM[5][8] = {
+  { 0x28, 0, 0, 0, 0, 0, 0, 0 },   // VSA1.1 (Rueckseite)
+  { 0x28, 0, 0, 0, 0, 0, 0, 0 },   // VSA1.2 (Vorderseite)
+  { 0x28, 0, 0, 0, 0, 0, 0, 0 },   // VSA2.1 (Rueckseite)
+  { 0x28, 0, 0, 0, 0, 0, 0, 0 },   // VSA2.2 (Vorderseite)
   { 0x28, 0, 0, 0, 0, 0, 0, 0 },   // AMB
 };
 
@@ -83,8 +94,17 @@ constexpr float TEMP_MIN_VALID = -55.0f;
 constexpr float TEMP_MAX_VALID = 125.0f;
 constexpr float TEMP_POR_VALUE =  85.0f;  // Power-On-Default, nur vor Conversion gueltig
 
+// Sensor-Offset-Kalibrierung (siehe CLAUDE.md "Sensor-Kalibrierung"):
+// per Waermebildkamera bestimmtes Delta zwischen Sondenposition
+// (Kuehlkoerper/BGA-nah) und echter BGA-Temperatur. Reine Regel-/
+// Anzeige-Groesse -- die ROHTEMPERATUR geht immer unveraendert ins Log,
+// der Offset darf sie dort nie ueberschreiben (sonst Historienverlust
+// bei spaeterer Nachkalibrierung). calC = rawC + SENSOR_OFFSET_C[i].
+constexpr float SENSOR_OFFSET_C[5] = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+
 // -------------------------------------------------------------
-//  4. LUEFTERKENNLINIE (eine Kurve fuer beide Zonen)
+//  4. LUEFTERKENNLINIE (dieselbe Kurve, 4x unabhaengig angewandt --
+//     siehe CLAUDE.md "Regelmodell", kein Zonen-Mischen)
 //     Kurvenform steht im Code, jeder Stuetzpunkt hier.
 // -------------------------------------------------------------
 struct FanCurve {
