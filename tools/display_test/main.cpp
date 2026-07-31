@@ -30,14 +30,15 @@ constexpr uint8_t  OLED_WIDTH   = 128;
 constexpr uint8_t  OLED_HEIGHT  = 64;
 constexpr uint32_t I2C_CLOCK_HZ = 50000;
 
-// --- Layoutwerte (kuenftiges 4-Luefter-Dashboard) ----------------
-constexpr uint8_t  COL_X[5]  = { 0, 24, 48, 72, 96 };   // Label,#1,#2,#3,#4
+// --- Layoutwerte (kuenftiges 4-Luefter-Dashboard, aus OLED
+// Dashboard Test auf dem echten Display ermittelt) ----------------
+constexpr uint8_t  COL_X[5]  = { 0, 21, 48, 75, 102 };  // Label,#1,#2,#3,#4
 constexpr uint8_t  CELL_W[5] = { 18, 24, 24, 24, 24 };
-constexpr uint8_t  ROW_Y[4]  = { 0, 13, 25, 37 };       // Kopf,Temp,rpm,Status
+constexpr uint8_t  ROW_Y[4]  = { 0, 10, 22, 34 };       // Kopf,Temp,rpm,Status
 constexpr uint8_t  TXT_SIZE_HEAD = 1;
 constexpr uint8_t  TXT_SIZE_VAL  = 1;
-constexpr bool     HEADER_UNDERLINE = true;
-constexpr bool     VSEP = false;
+constexpr bool     HEADER_UNDERLINE = false;
+constexpr bool     VSEP = true;
 constexpr bool     HSEP = true;
 constexpr uint16_t BLINK_MS = 500;
 constexpr char      HEARTBEAT_A = '|';
