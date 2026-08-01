@@ -1,15 +1,21 @@
 // =============================================================
-//  SensorCal.h — Sensor-Offset-Kalibrierung (siehe CLAUDE.md
-//  "Sensor-Kalibrierung", config.h SENSOR_OFFSET_C).
+//  SensorCal.h — Lastabhaengige Die-Korrektur (siehe CLAUDE.md
+//  "Sensor-Kalibrierung", config.h SENSOR_K).
 //
-//  Reine Logik, KEIN Arduino.h -> nativ testbar. Der Offset ist eine
-//  reine Regel-/Anzeige-Groesse: rawC geht IMMER unveraendert ins
-//  Log, calC (= rawC + Offset) nur in Regelung/Anzeige. Diese Funktion
-//  darf deshalb niemals als Ersatz fuer den geloggten Rohwert
-//  verwendet werden -- Aufrufer muessen rawC weiterhin separat
-//  fuer das Log vorhalten.
+//  Reine Logik, KEIN Arduino.h -> nativ testbar. Ein konstanter
+//  Offset waere physikalisch falsch: die Differenz Die-zu-Sonde ist
+//  bei Nulllast selbst null und waechst mit der Verlustleistung
+//  (ΔT = P * R_thermisch). Da P nicht gemessen wird, dient die
+//  Kuehler-Uebertemperatur ueber Ambient (rawSondeC - ambC) als
+//  monoton steigender Stellvertreter fuer die Last:
+//
+//    T_die ≈ T_sonde + k * (T_sonde - T_amb), k=0 -> keine Korrektur.
+//
+//  rawSondeC geht IMMER unveraendert ins Log, niemals das Ergebnis
+//  dieser Funktion -- nur so verliert eine spaetere Nachkalibrierung
+//  (neues k) nicht die Historie. Aufrufer muessen rawSondeC deshalb
+//  weiterhin separat fuers Log vorhalten.
 // =============================================================
 #pragma once
-#include <cstdint>
 
-float applySensorOffset(float rawC, uint8_t sensorIndex);
+float dieTempC(float rawSondeC, float ambC, float k);

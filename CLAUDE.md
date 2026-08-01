@@ -198,15 +198,39 @@ ausschliesslich die Panik-Uebersteuerung (`ambientPanicActive()` /
 Alle vier Luefter teilen sich einen gemeinsamen Molex-Stromanschluss —
 nur die PWM-/Tacho-Signale sind pro Luefter separat.
 
-### Sensor-Kalibrierung (Offset)
-`SENSOR_OFFSET_C[5]` (config.h) haelt das per Waermebildkamera bestimmte
-Delta zwischen Sondenposition (Kuehlkoerper-/BGA-nah) und echter
-BGA-Temperatur, einen Wert je Sensor-Rolle. **Regel:** Der Offset ist
-eine reine Regel-/Anzeige-Groesse. Die Rohtemperatur geht immer
-unveraendert ins Log (Ebene 1/2), der Offset darf sie dort **niemals**
-ueberschreiben — sonst geht bei einer spaeteren Nachkalibrierung die
-Historie verloren. Also: `rawC` -> Log; `calC = rawC + SENSOR_OFFSET_C[i]`
--> Regelung/Anzeige (`applySensorOffset()`).
+### Sensor-Kalibrierung (lastabhaengige Die-Korrektur)
+**Ein konstanter Offset ist physikalisch falsch** und wird nicht
+verwendet: Er wuerde behaupten, das Die sei *immer* um X °C waermer
+als die Sonde — auch bei stehender Karte. Tatsaechlich ist die
+Differenz bei Nulllast selbst null und waechst mit der
+Verlustleistung (`ΔT = P · R_thermisch`). Da `P` nicht gemessen wird,
+dient die Kuehler-Uebertemperatur ueber Ambient (`T_sonde - T_amb`)
+als monoton steigender Stellvertreter fuer die Last:
+
+```
+T_die ≈ T_sonde + k * (T_sonde - T_amb)      (dieTempC(), lib/SensorCal/)
+```
+
+`SENSOR_K[5]` (config.h) haelt den empirisch (per Waermebildkamera)
+bestimmten Faktor `k` je Sensor-Rolle, `k = 0` bedeutet keine
+Korrektur. Index 4 (AMB) ist der Ambient-Sensor selbst — sein `k`
+bleibt per Definition 0 (Referenz, wird nicht korrigiert).
+
+**Regel unveraendert:** reine Regel-/Anzeige-Groesse. Die
+Rohtemperatur geht immer unveraendert ins Log (Ebene 1/2), die
+Korrektur darf sie dort **niemals** ueberschreiben — sonst geht bei
+einer spaeteren Nachkalibrierung die Historie verloren. Also:
+`rawSondeC` -> Log; `calC = dieTempC(rawSondeC, ambC, k)` ->
+Regelung/Anzeige.
+
+**Kalibrierung von `k`:** mehrere Lastpunkte anfahren (Idle, mittlere
+Last, Volllast). Je Punkt `(T_sonde - T_amb)` auf x und
+`(T_die_Kamera - T_sonde)` auf y auftragen — die Steigung ist `k`.
+Erst mit einem linearen `k` arbeiten; nur falls die Messpunkte
+deutliche Kruemmung zeigen, `k` spaeter zu einer kleinen Kennlinie
+(Stuetzstellen + Interpolation) ausbauen. Die Struktur (`dieTempC()`
+nimmt `k` als einfachen Parameter) laesst diesen Schritt offen, ohne
+ihn vorwegzunehmen.
 
 ### Status je Kanal
 `Idle` = Luefter aus und unter Einschaltschwelle ·

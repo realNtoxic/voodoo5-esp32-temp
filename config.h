@@ -94,13 +94,18 @@ constexpr float TEMP_MIN_VALID = -55.0f;
 constexpr float TEMP_MAX_VALID = 125.0f;
 constexpr float TEMP_POR_VALUE =  85.0f;  // Power-On-Default, nur vor Conversion gueltig
 
-// Sensor-Offset-Kalibrierung (siehe CLAUDE.md "Sensor-Kalibrierung"):
-// per Waermebildkamera bestimmtes Delta zwischen Sondenposition
-// (Kuehlkoerper/BGA-nah) und echter BGA-Temperatur. Reine Regel-/
-// Anzeige-Groesse -- die ROHTEMPERATUR geht immer unveraendert ins Log,
-// der Offset darf sie dort nie ueberschreiben (sonst Historienverlust
-// bei spaeterer Nachkalibrierung). calC = rawC + SENSOR_OFFSET_C[i].
-constexpr float SENSOR_OFFSET_C[5] = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+// Lastabhaengige Die-Korrektur (siehe CLAUDE.md "Sensor-Kalibrierung"):
+// ein KONSTANTER Offset waere physikalisch falsch -- die Differenz
+// Die-zu-Sonde ist bei Nulllast selbst null und waechst mit der
+// Verlustleistung (ΔT = P * R_thermisch). Da P nicht gemessen wird,
+// dient die Kuehler-Uebertemperatur ueber Ambient (rawSondeC - ambC)
+// als monoton steigender Stellvertreter fuer die Last:
+// T_die ≈ T_sonde + k * (T_sonde - T_amb), k=0 -> keine Korrektur.
+// Reine Regel-/Anzeige-Groesse wie zuvor -- die ROHTEMPERATUR geht
+// immer unveraendert ins Log (siehe lib/SensorCal/SensorCal.h).
+// Index 4 (AMB) ist der Ambient-Sensor selbst -- dessen k bleibt per
+// Definition 0 (Referenz, wird nicht korrigiert).
+constexpr float SENSOR_K[5] = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
 
 // -------------------------------------------------------------
 //  4. LUEFTERKENNLINIE (dieselbe Kurve, 4x unabhaengig angewandt --
