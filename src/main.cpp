@@ -12,6 +12,7 @@
 #include "Hal.h"
 #include "BootSelfTest.h"
 #include "IDisplay.h"
+#include "ILed.h"
 
 namespace {
 
@@ -243,6 +244,27 @@ public:
 
 private:
   Adafruit_SSD1306 display_;
+};
+
+// Reale ILed-Implementierung fuer das LED-Muster-Modul (siehe
+// lib/Led/). Eigenstaendig neben Esp32Hal::setHeartbeatLed() -- genau
+// wie Esp32Display neben Hal::oledShowLine() steht: beide steuern
+// dasselbe physische Ausgabemittel an, aber ueber die fokussierte
+// Abstraktion, die das jeweilige Modul (hier LedPattern::ledLevel())
+// tatsaechlich braucht. Noch NICHT in setup()/loop() instanziiert:
+// dafuer fehlt der reale Fault-Latch-Zustand, den erst der spaetere
+// Health-Monitor liefert (siehe CLAUDE.md "LED").
+class Esp32Led : public ILed {
+public:
+  // GPIO2 ist ein Strapping-Pin -- ausschliesslich NACH dem
+  // Boot-Selbsttest aufrufen (siehe CLAUDE.md "Fallen").
+  void begin() {
+    pinMode(PIN_LED, OUTPUT);
+  }
+
+  void set(bool on) override {
+    digitalWrite(PIN_LED, on ? HIGH : LOW);
+  }
 };
 
 Esp32Hal hal;

@@ -243,3 +243,10 @@ static_assert(AMB_WARN_OFF_C < AMB_WARN_C,
 //  12. LED (Onboard, GPIO2)
 // -------------------------------------------------------------
 constexpr uint8_t PIN_LED = 2;  // Strapping-Pin, nach Boot als Ausgang unkritisch
+
+// Fault-Blinkmuster (Doppelblink): 200ms an / 200ms aus / 200ms an /
+// 600ms aus -- deutlich schneller/anders als der ruhige Heartbeat,
+// synchron zum akustischen Alarm erkennbar (siehe lib/Led/LedPattern).
+constexpr uint16_t LED_FAULT_ON_MS    = 200;
+constexpr uint16_t LED_FAULT_GAP_MS   = 200;
+constexpr uint16_t LED_FAULT_PAUSE_MS = 600;

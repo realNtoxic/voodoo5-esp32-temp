@@ -433,15 +433,38 @@ Regelung nicht beeinflussen.
 
 ### LED (`PIN_LED`, GPIO2) — dritter, display-unabhaengiger Meldekanal
 Default: Heartbeat, getrieben vom selben Regelkreis-`phase` wie das
-OLED-Lebenszeichen (`heartbeatLedOn()`, bereits implementiert) —
-funktioniert auch bei totem OLED. Fehlerfall (gelatchter, nicht
-quittierter Fehler): unterscheidbares Blinkmuster synchron zum
-Alarmton statt ruhigem Heartbeat — folgt, sobald Latch/Alarm real
-existiert. LED und Speaker sind beide in Software nicht verifizierbar,
-signalisieren aber bewusst Unterschiedliches (Muster vs. Ton) und
-ergaenzen sich statt sich zu ersetzen. GPIO2 ist ein Strapping-Pin:
-erst NACH dem Boot-Selbsttest als Ausgang konfigurieren
-(`hal.setHeartbeatLed()`).
+OLED-Lebenszeichen (`heartbeatLedOn()` in `lib/StatusLed/`, weiterhin
+unveraendert) — funktioniert auch bei totem OLED. Fehlerfall
+(gelatchter, nicht quittierter Fehler): unterscheidbares Doppelblink-
+Muster (`LED_FAULT_ON_MS`/`LED_FAULT_GAP_MS`/`LED_FAULT_PAUSE_MS` in
+`config.h`) statt ruhigem Heartbeat, synchron zum Alarmton erkennbar.
+
+Die Musterlogik dafuer liegt in `lib/Led/LedPattern.{h,cpp}`, analog
+zum Dashboard schmal und rein testbar:
+- `LedMode` (`Heartbeat`/`Fault`), `selectLedMode(faultActive)` waehlt
+  den Modus aus einem Bool (gelatchter, nicht quittierter Fehler --
+  der Latch selbst wird hier nicht neu gebaut, nur der Zustand
+  hereingereicht).
+- `ledLevel(mode, phase, nowMs)` liefert den Pegel: im Heartbeat-Fall
+  ausschliesslich aus `phase` (kein eigener Timer, genau wie beim
+  OLED-Lebenszeichen), im Fault-Fall ausschliesslich aus `nowMs` (das
+  Doppelblink-Zeitfenster braucht echte Millisekunden).
+- `ILed` (`lib/Led/ILed.h`) ist eine schmale Schnittstelle analog zu
+  `IDisplay` -- unabhaengig von der groeberen `Hal::setHeartbeatLed()`.
+  Reale Implementierung `Esp32Led` in `src/main.cpp`, Fake-Test-Double
+  `FakeLed` protokolliert `set()`-Aufrufe mit Zeitstempel.
+
+Noch NICHT in `setup()/loop()` verdrahtet: dafuer fehlt der reale
+Fault-Latch-Zustand, den erst der spaetere Health-Monitor liefert
+(siehe "Fehler-Latch und Alarm"). Grenze wie beim Speaker: die Tests
+pruefen nur die Musterlogik, nicht ob die LED physisch leuchtet --
+das bleibt Sichtpruefung am Board.
+
+LED und Speaker sind beide in Software nicht verifizierbar (fire-and-
+forget), signalisieren aber bewusst Unterschiedliches (Muster vs.
+Ton) und ergaenzen sich, statt sich zu ersetzen. GPIO2 ist ein
+Strapping-Pin: erst NACH dem Boot-Selbsttest als Ausgang konfigurieren
+(`hal.setHeartbeatLed()` bzw. `Esp32Led::begin()`).
 
 ---
 
