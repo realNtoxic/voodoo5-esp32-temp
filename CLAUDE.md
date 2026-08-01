@@ -30,7 +30,7 @@ pio device monitor -b 115200
 lib/Hal/              Gemeinsame Hal-Schnittstelle (BootSelfTest, AckButton, ...)
 lib/BootSelfTest/     Reine Logik, KEIN Arduino.h  -> nativ testbar
 lib/FanControl/       Kennlinie (curveDuty), Ambient-Panik, Sensor-Fail-Safe
-lib/SensorCal/        Sensor-Offset-Kalibrierung (rawC -> calC)
+lib/SensorCal/        Lastabhaengige Die-Korrektur (dieTempC: T_sonde + k*(T_sonde-T_amb))
 lib/AckButton/        Taster-Zustandsautomat
 lib/Health/           Runtime-Monitor, Latch, Alarm
 lib/Dashboard/        Anzeige-Layout + Render-Logik, ueber IDisplay testbar
@@ -149,9 +149,9 @@ bedeutet, dass ein Luefter auf dem falschen Chip regelt (siehe
 
 ### Anzeige (zwei Phasen)
 - 0–15 s: Selbsttest-Diagnosebild
-- danach: Dashboard, 4 Spalten x 4 Zeilen (Kopf, T, rpm, Status) plus
-  eine freie SelfDiag-Zeile ausserhalb des Rasters (siehe
-  "Dashboard-Anzeige & Meldekanaele")
+- danach: Dashboard, aktuell 4 Spalten x 4 Zeilen (Kopf, T, rpm, Status;
+  Spalten Label, VSA1, VSA2, Amb) plus eine freie SelfDiag-Zeile
+  ausserhalb des Rasters (siehe "Dashboard-Anzeige & Meldekanaele")
 
 ```
     #1    #2   #Amb
@@ -166,6 +166,28 @@ nicht dargestellt im Mockup.)
 Ambient hat KEINE rpm (kein Luefter -> `-`, Sentinel `rpm = -1`), aber
 vollen Status `Ok`/`Warn`/`Err` wie VSA1/VSA2 — siehe "Ambient-Umbau".
 Umschaltung ueber `millis()`, kein `delay(15000)`.
+
+**Ziel-Layout (geplant, noch NICHT in `lib/Dashboard/` umgesetzt):**
+Vier Kanalspalten `#1`..`#4` (je ein Luefter-Regelkreis, siehe
+"Regelmodell") statt VSA1/VSA2/Amb. Ambient wandert aus der
+Kanaltabelle in die freie Zeile 5 und wird dort zu einem eigenen
+Segment. Pixelwerte bereits auf echter Hardware ueber
+`tools/display_test/` abgestimmt:
+
+```
+    |  #1   #2   #3   #4
+  T | 41   44   40   43
+rpm | 0   3090 2800   0
+Sta | OK  Warn  Err  idle
+[Amb:26] Heap 142k 45Hz
+```
+
+Zelle 0;0 zeigt weiterhin das Lebenszeichen. Ambient ist hier **keine**
+Kanalspalte mehr, sondern das Segment `Amb:<temp>` links in Zeile 5 —
+reagiert wie eine Statuszelle auf seinen Status (Warn -> invertiert,
+Err -> blinkt), hat aber keine rpm-Anzeige (kein eigener Luefter, kein
+rpm-Konzept im Segment). Der Umbau von `lib/Dashboard/Dashboard.cpp`
+auf dieses Layout folgt in einem spaeteren Schritt.
 
 ### Regelung
 Semi-passiv. Unter 40 C stehen die Luefter (0 %). Ab 45 C Kickstart 30 % /
@@ -241,7 +263,12 @@ ihn vorwegzunehmen.
 Ambient durchlaeuft dieselben vier Status wie VSA1.1/VSA1.2/VSA2.1/VSA2.2
 (kein fest verdrahteter `NA`-Status mehr, siehe "Ambient-Umbau"). Nur die
 rpm-Zelle bleibt fuer Ambient immer `-` (Sentinel `rpm = -1`) — Ambient
-hat schlicht keinen eigenen Luefter, unabhaengig vom Status.
+hat schlicht keinen eigenen Luefter, unabhaengig vom Status. Diese vier
+Status sind reine Regelungs-/Health-Semantik, unabhaengig von der
+Darstellung: aktuell ist Ambient eine Dashboard-Spalte mit rpm-Zelle
+`-`, im geplanten Ziel-Layout (siehe "Anzeige") zeigt stattdessen das
+Ambient-Segment in Zeile 5 denselben Status — dort ganz ohne
+rpm-Konzept.
 
 ### Health-Monitor (Runtime)
 Laeuft in jedem Regelzyklus, nicht nur beim Boot.
@@ -398,8 +425,10 @@ vermischen.
   Zeilentypen: die Kanal-Zeilen (4 Spalten x 4 Zeilen nach
   `COL_X`/`ROW_Y`) und die freie SelfDiag-Zeile (Zeile 5, `SELFDIAG_Y`,
   volle Breite, ausserhalb des Rasters).
-- Rechts der Amb-Spalte (ab x ≈ 105) bleiben bewusst ~23 px frei — Platz
-  fuer eine moegliche 4. Datenspalte spaeter.
+- Rechts der aktuellen dritten Spalte (Amb, ab x ≈ 105) bleiben rein
+  rechnerisch ~23 px frei. Im geplanten Ziel-Layout (vier Kanalspalten
+  statt drei, siehe "Anzeige") wird dieser Platz anders genutzt — mit
+  eigenem `COL_X` fuer vier statt drei Datenspalten.
 
 ### Layout-Regeln
 - Feste Zellbreiten (`CELL_W`). Eine invertierte Zelle (Warn/Err) fuellt
@@ -417,11 +446,14 @@ vermischen.
 ### Statuszellen
 - `cellInverted(status, phase)`: `Warn` -> immer invertiert; `Err` ->
   blinkt im Takt von `phase` (`phase != 0`); `Ok`/`Idle` -> nie.
-- Gilt jetzt fuer ALLE drei Kanaele inkl. Ambient — Ambient ist nicht
+- Gilt aktuell fuer ALLE drei Kanaele inkl. Ambient — Ambient ist nicht
   mehr fest auf `NA` gesetzt, sondern durchlaeuft dieselbe Ok/Warn/Err-
   Logik wie VSA1/VSA2 (siehe "Ambient-Umbau" unten). Die rpm-Zelle
   bleibt fuer Ambient trotzdem immer "-": Ambient hat schlicht keinen
-  Luefter.
+  Luefter. Im geplanten Ziel-Layout (vier Kanalspalten `#1`..`#4` plus
+  Ambient-Segment in Zeile 5, siehe "Anzeige") gilt dieselbe
+  `cellInverted()`-Regel unveraendert weiter — fuer die vier
+  Kanalspalten genauso wie fuer das Ambient-Segment.
 
 ### Lebenszeichen (Zelle 0;0)
 `heartbeatChar(phase)`: `phase != 0` -> `HEARTBEAT_A`, sonst
