@@ -149,30 +149,10 @@ bedeutet, dass ein Luefter auf dem falschen Chip regelt (siehe
 
 ### Anzeige (zwei Phasen)
 - 0–15 s: Selbsttest-Diagnosebild
-- danach: Dashboard, aktuell 4 Spalten x 4 Zeilen (Kopf, T, rpm, Status;
-  Spalten Label, VSA1, VSA2, Amb) plus eine freie SelfDiag-Zeile
-  ausserhalb des Rasters (siehe "Dashboard-Anzeige & Meldekanaele")
-
-```
-    #1    #2   #Amb
-T C 30    35    20
-rpm  0   150     -
-Sta idle  OK    OK
-```
-
-(Zelle 0;0 der Kopfzeile zeigt das Lebenszeichen `heartbeatChar(phase)`,
-nicht dargestellt im Mockup.)
-
-Ambient hat KEINE rpm (kein Luefter -> `-`, Sentinel `rpm = -1`), aber
-vollen Status `Ok`/`Warn`/`Err` wie VSA1/VSA2 — siehe "Ambient-Umbau".
-Umschaltung ueber `millis()`, kein `delay(15000)`.
-
-**Ziel-Layout (geplant, noch NICHT in `lib/Dashboard/` umgesetzt):**
-Vier Kanalspalten `#1`..`#4` (je ein Luefter-Regelkreis, siehe
-"Regelmodell") statt VSA1/VSA2/Amb. Ambient wandert aus der
-Kanaltabelle in die freie Zeile 5 und wird dort zu einem eigenen
-Segment. Pixelwerte bereits auf echter Hardware ueber
-`tools/display_test/` abgestimmt:
+- danach: Dashboard, 4 Kanalspalten `#1`..`#4` (je ein
+  Luefter-Regelkreis, siehe "Regelmodell") plus freie SelfDiag-Zeile
+  (Zeile 5) mit Ambient-Segment (siehe "Dashboard-Anzeige &
+  Meldekanaele")
 
 ```
     |  #1   #2   #3   #4
@@ -182,12 +162,16 @@ Sta | OK  Warn  Err  idle
 [Amb:26] Heap 142k 45Hz
 ```
 
-Zelle 0;0 zeigt weiterhin das Lebenszeichen. Ambient ist hier **keine**
-Kanalspalte mehr, sondern das Segment `Amb:<temp>` links in Zeile 5 —
-reagiert wie eine Statuszelle auf seinen Status (Warn -> invertiert,
-Err -> blinkt), hat aber keine rpm-Anzeige (kein eigener Luefter, kein
-rpm-Konzept im Segment). Der Umbau von `lib/Dashboard/Dashboard.cpp`
-auf dieses Layout folgt in einem spaeteren Schritt.
+Zelle 0;0 der Kopfzeile zeigt das Lebenszeichen `heartbeatChar(phase)`
+(nicht dargestellt im Mockup). Ambient ist **keine** Kanalspalte,
+sondern das Segment `Amb:<temp>` links in Zeile 5 — reagiert wie eine
+Statuszelle auf seinen Status (Warn -> invertiert, Err -> blinkt), hat
+aber keine rpm-Anzeige (kein eigener Luefter, kein rpm-Konzept im
+Segment). Umschaltung ueber `millis()`, kein `delay(15000)`. Pixelwerte
+bereits auf echter Hardware ueber `tools/display_test/` abgestimmt.
+
+**Umsetzungsstand:** `lib/Dashboard/` ist noch auf dieses Layout
+umzustellen.
 
 ### Regelung
 Semi-passiv. Unter 40 C stehen die Luefter (0 %). Ab 45 C Kickstart 30 % /
@@ -261,14 +245,11 @@ ihn vorwegzunehmen.
 `Err` = Sensor antwortet nicht oder kein Tacho trotz Duty
 
 Ambient durchlaeuft dieselben vier Status wie VSA1.1/VSA1.2/VSA2.1/VSA2.2
-(kein fest verdrahteter `NA`-Status mehr, siehe "Ambient-Umbau"). Nur die
-rpm-Zelle bleibt fuer Ambient immer `-` (Sentinel `rpm = -1`) — Ambient
-hat schlicht keinen eigenen Luefter, unabhaengig vom Status. Diese vier
-Status sind reine Regelungs-/Health-Semantik, unabhaengig von der
-Darstellung: aktuell ist Ambient eine Dashboard-Spalte mit rpm-Zelle
-`-`, im geplanten Ziel-Layout (siehe "Anzeige") zeigt stattdessen das
-Ambient-Segment in Zeile 5 denselben Status — dort ganz ohne
-rpm-Konzept.
+(kein fest verdrahteter `NA`-Status mehr, siehe "Ambient-Umbau"). Diese
+vier Status sind reine Regelungs-/Health-Semantik, unabhaengig von der
+Darstellung: im Dashboard zeigt das Ambient-Segment in Zeile 5 (siehe
+"Anzeige") denselben Status, ganz ohne rpm-Konzept — Ambient hat
+schlicht keinen eigenen Luefter.
 
 ### Health-Monitor (Runtime)
 Laeuft in jedem Regelzyklus, nicht nur beim Boot.
@@ -422,13 +403,13 @@ vermischen.
   `setup()/loop()` verdrahtet — dafuer fehlt die Sensor-/Luefter-
   Datenquelle, die erst in einem spaeteren Schritt entsteht.
 - `Dashboard::render(const DashboardData&, uint8_t phase)` zeichnet zwei
-  Zeilentypen: die Kanal-Zeilen (4 Spalten x 4 Zeilen nach
-  `COL_X`/`ROW_Y`) und die freie SelfDiag-Zeile (Zeile 5, `SELFDIAG_Y`,
-  volle Breite, ausserhalb des Rasters).
-- Rechts der aktuellen dritten Spalte (Amb, ab x ≈ 105) bleiben rein
-  rechnerisch ~23 px frei. Im geplanten Ziel-Layout (vier Kanalspalten
-  statt drei, siehe "Anzeige") wird dieser Platz anders genutzt — mit
-  eigenem `COL_X` fuer vier statt drei Datenspalten.
+  Zeilentypen: die Kanal-Zeilen (4 Kanaele `#1`..`#4` plus Label-Spalte
+  links, 5 Spalten x 4 Zeilen nach `COL_X`/`ROW_Y`) und die freie
+  SelfDiag-Zeile (Zeile 5, `SELFDIAG_Y`, volle Breite, ausserhalb des
+  Rasters).
+- Vier Kanalspalten `#1`..`#4` nach finalem `COL_X` (vom OLED-Tool
+  bestaetigt, siehe `tools/display_test/`); etwaiger Restplatz rechts
+  bleibt fuer kuenftige Optionen frei.
 
 ### Layout-Regeln
 - Feste Zellbreiten (`CELL_W`). Eine invertierte Zelle (Warn/Err) fuellt
@@ -446,14 +427,11 @@ vermischen.
 ### Statuszellen
 - `cellInverted(status, phase)`: `Warn` -> immer invertiert; `Err` ->
   blinkt im Takt von `phase` (`phase != 0`); `Ok`/`Idle` -> nie.
-- Gilt aktuell fuer ALLE drei Kanaele inkl. Ambient — Ambient ist nicht
-  mehr fest auf `NA` gesetzt, sondern durchlaeuft dieselbe Ok/Warn/Err-
-  Logik wie VSA1/VSA2 (siehe "Ambient-Umbau" unten). Die rpm-Zelle
-  bleibt fuer Ambient trotzdem immer "-": Ambient hat schlicht keinen
-  Luefter. Im geplanten Ziel-Layout (vier Kanalspalten `#1`..`#4` plus
-  Ambient-Segment in Zeile 5, siehe "Anzeige") gilt dieselbe
-  `cellInverted()`-Regel unveraendert weiter — fuer die vier
-  Kanalspalten genauso wie fuer das Ambient-Segment.
+- Gilt fuer die vier Kanal-Statuszellen (`#1`..`#4`) UND fuer das
+  Ambient-Segment in Zeile 5 — dieselbe Regel, kein Sonderfall. Jeder
+  Kanal hat eine eigene rpm-Zelle (abhaengig vom zugeordneten
+  Luefter); das Ambient-Segment hat kein rpm-Konzept (kein eigener
+  Luefter, siehe "Ambient-Umbau").
 
 ### Lebenszeichen (Zelle 0;0)
 `heartbeatChar(phase)`: `phase != 0` -> `HEARTBEAT_A`, sonst
