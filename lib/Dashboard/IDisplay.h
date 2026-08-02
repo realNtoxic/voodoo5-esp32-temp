@@ -22,6 +22,16 @@ public:
 
   virtual void fillRect(uint8_t x, uint8_t y, uint8_t w, uint8_t h) = 0;
 
+  // Nur der Rahmen (4 Kanten) eines Rechtecks, ohne Fuellung -- fuer
+  // die unquittierte Err-Aus-Phase einer Statuszelle (siehe
+  // lib/Dashboard/StatusCell.h).
+  virtual void frameRect(uint8_t x, uint8_t y, uint8_t w, uint8_t h) = 0;
+
+  // Gegenstueck zu fillRect(): fuellt mit der Hintergrundfarbe. Fuer
+  // die gegenphasige Ack-Eckmarke innerhalb einer bereits
+  // invertierten Zelle (siehe lib/Dashboard/StatusCell.h).
+  virtual void clearRect(uint8_t x, uint8_t y, uint8_t w, uint8_t h) = 0;
+
   virtual void hLine(uint8_t y) = 0;  // volle Breite
   virtual void vLine(uint8_t x) = 0;  // volle Hoehe
 

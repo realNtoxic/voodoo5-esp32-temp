@@ -174,6 +174,110 @@ static void test_selfdiag_row_drawn_as_free_line_at_x0() {
   TEST_ASSERT_TRUE(found);
 }
 
+// ---------------------------------------------------------------
+//  renderFinal() -- finales 4-Kanal-Layout, additiv neben render().
+//  Aendert nichts an obigen render()-Tests, siehe Dashboard.h.
+// ---------------------------------------------------------------
+
+static FinalDashboardData allOkFinalData() {
+  FinalDashboardData d{};
+  d.channels[0] = { 41.0f, 0,    ChStatus::Ok, false };
+  d.channels[1] = { 44.0f, 3090, ChStatus::Ok, false };
+  d.channels[2] = { 40.0f, 2800, ChStatus::Ok, false };
+  d.channels[3] = { 43.0f, 0,    ChStatus::Ok, false };
+  d.ambient     = { 26.0f, -1,   ChStatus::Ok, false };
+  d.scrollText = "Hi";
+  d.scrollTextLen = 2;
+  return d;
+}
+
+static void test_render_final_all_ok_phase_off_exact_sequence() {
+  FakeDisplay fd;
+  Dashboard dash(fd);
+  const FinalDashboardData d = allOkFinalData();
+
+  dash.renderFinal(d, /*phaseOn=*/false, /*scrollOffsetPx=*/0);
+
+  const std::vector<std::string> expected = {
+    "clear",
+    "drawText:0:0:-:1:0",
+    "drawText:21:0:#1:1:0",
+    "drawText:48:0:#2:1:0",
+    "drawText:75:0:#3:1:0",
+    "drawText:102:0:#4:1:0",
+    "drawText:0:10:T:1:0",
+    "drawText:21:10:41:1:0",
+    "drawText:48:10:44:1:0",
+    "drawText:75:10:40:1:0",
+    "drawText:102:10:43:1:0",
+    "hLine:21",
+    "drawText:0:22:rpm:1:0",
+    "drawText:21:22:0:1:0",
+    "drawText:48:22:3090:1:0",
+    "drawText:75:22:2800:1:0",
+    "drawText:102:22:0:1:0",
+    "hLine:33",
+    "drawText:0:34:Sta:1:0",
+    "drawText:21:34:OK:1:0",
+    "drawText:48:34:OK:1:0",
+    "drawText:75:34:OK:1:0",
+    "drawText:102:34:OK:1:0",
+    "vLine:19",
+    "vLine:46",
+    "vLine:73",
+    "vLine:100",
+    "drawText:0:53:Amb:26:1:0",
+    "drawText:40:53:H:1:0",
+    "drawText:46:53:i:1:0",
+    "drawText:52:53:H:1:0",
+    "drawText:58:53:i:1:0",
+    "present",
+  };
+
+  TEST_ASSERT_EQUAL_UINT(expected.size(), fd.calls.size());
+  for (size_t i = 0; i < expected.size(); ++i) {
+    TEST_ASSERT_EQUAL_STRING(expected[i].c_str(), fd.calls[i].c_str());
+  }
+}
+
+// Kanal #3 (Index 2) mit unquittiertem Err in der Aus-Phase muss den
+// Rahmen zeigen -- dieselbe StatusCell-Routine wie in test_status_cell,
+// hier als Nachweis, dass renderFinal() sie tatsaechlich benutzt.
+static void test_render_final_unacked_err_channel_shows_frame() {
+  FakeDisplay fd;
+  Dashboard dash(fd);
+  FinalDashboardData d = allOkFinalData();
+  d.channels[2].status = ChStatus::Err;
+  d.channels[2].acked = false;
+
+  dash.renderFinal(d, /*phaseOn=*/false, /*scrollOffsetPx=*/0);
+
+  bool hasFrame = false;
+  for (size_t i = 0; i + 1 < fd.calls.size(); ++i) {
+    if (fd.calls[i] == "frameRect:75:33:24:9" && fd.calls[i + 1] == "drawText:75:34:ERR:1:0") {
+      hasFrame = true;
+    }
+  }
+  TEST_ASSERT_TRUE(hasFrame);
+}
+
+// Takt kommt ausschliesslich aus phaseOn/scrollOffsetPx -- kein
+// interner Timer: gleiche Eingaben muessen bei zwei Aufrufen exakt
+// dieselbe Ausgabe erzeugen.
+static void test_render_final_is_deterministic_for_same_inputs() {
+  const FinalDashboardData d = allOkFinalData();
+
+  FakeDisplay fdFirst;
+  Dashboard dashFirst(fdFirst);
+  dashFirst.renderFinal(d, true, 17);
+
+  FakeDisplay fdSecond;
+  Dashboard dashSecond(fdSecond);
+  dashSecond.renderFinal(d, true, 17);
+
+  TEST_ASSERT_TRUE(fdFirst.calls == fdSecond.calls);
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_cell_inverted_rules);
@@ -183,5 +287,8 @@ int main(int, char**) {
   RUN_TEST(test_ambient_warn_is_rendered_inverted_rpm_stays_dash);
   RUN_TEST(test_ambient_err_blinks_with_phase);
   RUN_TEST(test_selfdiag_row_drawn_as_free_line_at_x0);
+  RUN_TEST(test_render_final_all_ok_phase_off_exact_sequence);
+  RUN_TEST(test_render_final_unacked_err_channel_shows_frame);
+  RUN_TEST(test_render_final_is_deterministic_for_same_inputs);
   return UNITY_END();
 }

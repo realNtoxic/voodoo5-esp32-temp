@@ -1,6 +1,9 @@
 #include "Dashboard.h"
+#include "StatusCell.h"
+#include "ScrollLine.h"
 #include "config.h"
 #include <cstdio>
+#include <cstring>
 
 namespace {
 
@@ -127,6 +130,97 @@ void Dashboard::render(const DashboardData& d, uint8_t phase) {
   if (SELFDIAG_ROW) {
     display_.drawText(0, SELFDIAG_Y, d.selfLine, TXT_SIZE_VAL, false);
   }
+
+  display_.present();
+}
+
+namespace {
+
+// Fuellbreite fuer eine Kanalspalte im finalen Layout, geclippt an die
+// naechste Spaltengrenze bzw. den Bildschirmrand -- analog zu
+// invertFillWidth() oben, aber fuer CH_COL_X/CH_CELL_W (5 Spalten:
+// Label + #1..#4).
+uint8_t chFillWidth(uint8_t col) {
+  const uint8_t naturalWidth = CH_CELL_W[col];
+  uint8_t gap;
+  if (col + 1 < 5) {
+    gap = static_cast<uint8_t>(CH_COL_X[col + 1] - CH_COL_X[col]);
+  } else {
+    gap = static_cast<uint8_t>(OLED_WIDTH - CH_COL_X[col]);
+  }
+  return naturalWidth < gap ? naturalWidth : gap;
+}
+
+}  // namespace
+
+void Dashboard::renderFinal(const FinalDashboardData& d, bool phaseOn, int32_t scrollOffsetPx) {
+  display_.clear();
+
+  // Kopfzeile: Lebenszeichen (0;0) + #1..#4.
+  const char hb[2] = { phaseOn ? HEARTBEAT_A : HEARTBEAT_B, '\0' };
+  display_.drawText(CH_COL_X[0], CH_ROW_Y[0], hb, TXT_SIZE_HEAD, false);
+  static const char* const kHeaders[4] = { "#1", "#2", "#3", "#4" };
+  for (uint8_t i = 0; i < 4; ++i) {
+    display_.drawText(CH_COL_X[i + 1], CH_ROW_Y[0], kHeaders[i], TXT_SIZE_HEAD, false);
+  }
+
+  if (CH_HEADER_UNDERLINE) {
+    display_.hLine(static_cast<uint8_t>(CH_ROW_Y[1] - 1));
+  }
+
+  // Temp-Zeile.
+  char buf[8];
+  display_.drawText(CH_COL_X[0], CH_ROW_Y[1], "T", TXT_SIZE_VAL, false);
+  for (uint8_t i = 0; i < 4; ++i) {
+    formatTemp(buf, sizeof(buf), d.channels[i].tempC);
+    display_.drawText(CH_COL_X[i + 1], CH_ROW_Y[1], buf, TXT_SIZE_VAL, false);
+  }
+
+  if (HSEP) {
+    display_.hLine(static_cast<uint8_t>(CH_ROW_Y[2] - 1));
+  }
+
+  // rpm-Zeile.
+  display_.drawText(CH_COL_X[0], CH_ROW_Y[2], "rpm", TXT_SIZE_VAL, false);
+  for (uint8_t i = 0; i < 4; ++i) {
+    formatRpm(buf, sizeof(buf), d.channels[i].rpm);
+    display_.drawText(CH_COL_X[i + 1], CH_ROW_Y[2], buf, TXT_SIZE_VAL, false);
+  }
+
+  if (HSEP) {
+    display_.hLine(static_cast<uint8_t>(CH_ROW_Y[3] - 1));
+  }
+
+  // Status-Zeile: gemeinsame Routine fuer alle vier Kanalspalten
+  // (siehe StatusCell.h) -- kein doppelter Code zum Ambient-Segment
+  // unten.
+  display_.drawText(CH_COL_X[0], CH_ROW_Y[3], "Sta", TXT_SIZE_VAL, false);
+  for (uint8_t i = 0; i < 4; ++i) {
+    const ChannelStatus& ch = d.channels[i];
+    ::drawStatusCell(display_, CH_COL_X[i + 1], CH_ROW_Y[3], statusText(ch.status),
+                      ch.status, phaseOn, ch.acked, chFillWidth(i + 1));
+  }
+
+  if (CH_VSEP) {
+    for (uint8_t col = 0; col < 4; ++col) {
+      const uint8_t gapStart = static_cast<uint8_t>(CH_COL_X[col] + CH_CELL_W[col]);
+      const uint8_t gapEnd = CH_COL_X[col + 1];
+      display_.vLine(static_cast<uint8_t>((gapStart + gapEnd) / 2));
+    }
+  }
+
+  // Zeile 5: Ambient-Segment fest links (dieselbe Statuszellen-Regel
+  // wie die Kanalspalten), Laufband rechts daneben, links an der
+  // Segmentgrenze geclippt.
+  char ambBuf[12];
+  std::snprintf(ambBuf, sizeof(ambBuf), "Amb:%.0f", static_cast<double>(d.ambient.tempC));
+  const uint8_t ambW = static_cast<uint8_t>(std::strlen(ambBuf) * 6 * TXT_SIZE_VAL);
+  ::drawStatusCell(display_, 0, CH_SELFDIAG_Y, ambBuf, d.ambient.status, phaseOn,
+                    d.ambient.acked, ambW);
+
+  const uint8_t scrollStartX = static_cast<uint8_t>(ambW + 4);
+  drawScrollLine(display_, d.scrollText, d.scrollTextLen, scrollOffsetPx,
+                 scrollStartX, CH_SELFDIAG_Y, OLED_WIDTH);
 
   display_.present();
 }

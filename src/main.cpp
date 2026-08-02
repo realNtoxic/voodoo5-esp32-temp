@@ -232,6 +232,14 @@ public:
     display_.fillRect(x, y, w, h, SSD1306_WHITE);
   }
 
+  void frameRect(uint8_t x, uint8_t y, uint8_t w, uint8_t h) override {
+    display_.drawRect(x, y, w, h, SSD1306_WHITE);
+  }
+
+  void clearRect(uint8_t x, uint8_t y, uint8_t w, uint8_t h) override {
+    display_.fillRect(x, y, w, h, SSD1306_BLACK);
+  }
+
   void hLine(uint8_t y) override {
     display_.drawFastHLine(0, y, OLED_WIDTH, SSD1306_WHITE);
   }

@@ -270,3 +270,34 @@ constexpr float HISTORY_EPSILON_C = 0.5f;
 // uebernommen, aber erst nach diesem Intervall tatsaechlich
 // persistiert, nicht bei jedem einzelnen Rausch-Peak.
 constexpr uint32_t HISTORY_COMMIT_MS = 300000;  // 5 Minuten
+
+// -------------------------------------------------------------
+//  14. FINALES DASHBOARD-LAYOUT (4 Kanalspalten + Ambient-Segment/
+//      Laufband in Zeile 5, siehe CLAUDE.md "Dashboard-Anzeige",
+//      aus OLED Dashboard Test auf echter Hardware abgestimmt).
+//      Eigene Namen (Praefix CH_), weil das bestehende COL_X/CELL_W/
+//      ROW_Y/HEADER_UNDERLINE/VSEP/SELFDIAG_Y (oben, Block 10) fuer
+//      das aktuelle 3-Spalten-Layout von lib/Dashboard/ unveraendert
+//      bleiben muessen (siehe test_dashboard). Werte, die sich
+//      zwischen beiden Layouts nicht unterscheiden (TXT_SIZE_*, HSEP,
+//      BLINK_MS, HEARTBEAT_A/B, SELFDIAG_ROW), werden weiterhin
+//      gemeinsam genutzt, nicht dupliziert.
+// -------------------------------------------------------------
+constexpr uint8_t CH_COL_X[5]  = { 0, 21, 48, 75, 102 };  // Label,#1,#2,#3,#4
+constexpr uint8_t CH_CELL_W[5] = { 18, 24, 24, 24, 24 };
+constexpr uint8_t CH_ROW_Y[4]  = { 0, 10, 22, 34 };       // Kopf,Temp,rpm,Status
+constexpr bool    CH_HEADER_UNDERLINE = false;
+constexpr bool    CH_VSEP = true;
+constexpr uint8_t CH_SELFDIAG_Y = 53;
+
+// Laufband (Zeile 5, rechts vom Ambient-Segment), siehe
+// lib/Dashboard/ScrollLine.h. Eigener Takt, getrennt von BLINK_MS --
+// Blinken und Scrollen duerfen unabhaengig voneinander schnell/langsam
+// sein.
+constexpr uint16_t SCROLL_MS      = 60;  // Scroll-Takt
+constexpr uint8_t  SCROLL_STEP_PX = 2;   // Pixel je Scroll-Takt
+
+// Ack-Karenzzone (siehe lib/Health/AckLatch.h): ein Fehler, der juenger
+// als das ist, kann noch nicht quittiert werden -- erzwingt bewusste
+// Kenntnisnahme statt reflexartigem Wegdruecken direkt beim Ausloesen.
+constexpr uint16_t ACK_GRACE_MS = 1500;

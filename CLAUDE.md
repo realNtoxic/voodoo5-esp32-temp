@@ -32,7 +32,7 @@ lib/BootSelfTest/     Reine Logik, KEIN Arduino.h  -> nativ testbar
 lib/FanControl/       Kennlinie (curveDuty), Ambient-Panik, Sensor-Fail-Safe
 lib/SensorCal/        Lastabhaengige Die-Korrektur (dieTempC: T_sonde + k*(T_sonde-T_amb))
 lib/AckButton/        Taster-Zustandsautomat
-lib/Health/           Runtime-Monitor, Latch, Alarm
+lib/Health/           Ack-Zustandslogik (AckLatch, Karenzzone); Runtime-Monitor/Alarm folgen
 lib/Dashboard/        Anzeige-Layout + Render-Logik, ueber IDisplay testbar
 lib/SelfDiag/         Freie Diagnose-Zeile (Heap/Loop-Hz), Komfort
 lib/StatusLed/        Heartbeat-Grundzustand fuer die LED (GPIO2)
@@ -306,6 +306,9 @@ Ton markiert den Ausloeser der Aktion:
 | >= 1200 ms | + tief 1800 Hz bei 1200 ms | Latch-Reset, sofort |
 
 Quittieren schaltet nur den **Ton** stumm, die OLED-Markierung bleibt.
+Was "Quittieren" auf Latch-Ebene genau bedeutet (Karenzzone, "alle auf
+einmal", pro-Latch-Flag) steht in "Ack-Zustandslogik" unter
+"Dashboard-Anzeige & Meldekanaele".
 
 ### Watchdog
 `esp_task_wdt` mit 8 s. **Core 3.x API:** `esp_task_wdt_init()` nimmt eine
@@ -488,6 +491,13 @@ Teil von v1.
 - Vier Kanalspalten `#1`..`#4` nach finalem `COL_X` (vom OLED-Tool
   bestaetigt, siehe `tools/display_test/`); etwaiger Restplatz rechts
   bleibt fuer kuenftige Optionen frei.
+- `Dashboard::renderFinal(const FinalDashboardData&, phaseOn,
+  scrollOffsetPx)` implementiert das Ziel-Layout vollstaendig: 4
+  Kanalspalten + Ambient-Segment/Laufband in Zeile 5 als dritter
+  Zeilentyp (siehe "Laufband" unten). Additiv neben `render()` -- das
+  bedient unveraendert das aeltere 3-Spalten-Layout weiter, bis es
+  darauf umgestellt wird. Wie `render()` noch nicht in `setup()/loop()`
+  verdrahtet (fehlende Sensor-Datenquelle).
 
 ### Layout-Regeln
 - Feste Zellbreiten (`CELL_W`). Eine invertierte Zelle (Warn/Err) fuellt
@@ -503,22 +513,91 @@ Teil von v1.
   jeweils folgenden Zeile.
 
 ### Statuszellen
-- `cellInverted(status, phase)`: `Warn` -> immer invertiert; `Err` ->
-  blinkt im Takt von `phase` (`phase != 0`); `Ok`/`Idle` -> nie.
-- Gilt fuer die vier Kanal-Statuszellen (`#1`..`#4`) UND fuer das
-  Ambient-Segment in Zeile 5 — dieselbe Regel, kein Sonderfall. Jeder
-  Kanal hat eine eigene rpm-Zelle (abhaengig vom zugeordneten
-  Luefter); das Ambient-Segment hat kein rpm-Konzept (kein eigener
-  Luefter, siehe "Ambient-Umbau").
+Gemeinsame Routine `drawStatusCell()` (`lib/Dashboard/StatusCell.h`)
+fuer ALLE Statuszellen — die vier Kanalspalten (`#1`..`#4`) UND das
+Ambient-Segment in Zeile 5 nutzen sie identisch, kein doppelter Code.
+Reine Teil-Logik, unabhaengig testbar:
+- `cellShowsBlock(status, phaseOn)`: `Warn` -> immer (lebende
+  Bedingung, kein Ack-Konzept, verschwindet von selbst); `Err` -> nur
+  waehrend der An-Phase (`phaseOn`).
+- `cellShowsFrame(status, phaseOn, acked)`: nur die UNQUITTIERTE
+  Err-Aus-Phase — Rahmen (`frameRect`) statt Fuellung, damit sie nicht
+  mit `Ok` verwechselbar ist. Sobald quittiert, faellt der Rahmen weg.
+- `cellShowsMark(status, acked)`: quittierter Err-Zustand zeigt
+  zusaetzlich in BEIDEN Phasen eine gegenphasige 3x3-Eckmarke oben
+  rechts (`clearRect` waehrend der An-Phase, `fillRect` waehrend der
+  Aus-Phase) — das eigentliche Ack-Signal: "Blinken mit Marke =
+  quittiert, ohne Marke = unquittiert".
 
-### Lebenszeichen (Zelle 0;0)
+Zustandsuebersicht: `Ok`/`Idle` zeigen nur Text · `Warn` statisch
+invertiert · `Err` unquittiert blinkt (Aus-Phase mit Rahmen) · `Err`
+quittiert blinkt weiterhin, aber mit gegenphasiger Eckmarke statt
+Rahmen. `Warn` und `Err` ueberschneiden sich nur waehrend der lauten
+(unquittierten) An-Phase (beide invertiert); im stillen (quittierten)
+Err-Zustand ist die Eckmarke eindeutig von `Warn` unterscheidbar. Jeder
+Kanal hat eine eigene rpm-Zelle (abhaengig vom zugeordneten Luefter);
+das Ambient-Segment hat kein rpm-Konzept (kein eigener Luefter, siehe
+"Ambient-Umbau").
+
+Aeltere, weiterhin bestehende Vereinfachung: `cellInverted(status,
+phase)` (kein Ack, kein Rahmen, keine Marke) bedient unveraendert das
+aeltere 3-Spalten-`Dashboard::render()` — bleibt bestehen, bis dieses
+auf das finale Layout umgestellt wird.
+
+### Laufband (Zeile 5, `lib/Dashboard/ScrollLine.h`)
+Zeile 5 besteht aus zwei Teilen: dem Ambient-Segment fest links (siehe
+oben, ueber `drawStatusCell()`, scrollt NICHT) und einem durchlaufenden
+Laufband rechts daneben. Das Laufband ist links an der Segmentgrenze
+geclippt — es darf nie ins Ambient-Segment laufen (`drawScrollLine()`,
+eigener Takt `SCROLL_MS`/`SCROLL_STEP_PX`, getrennt von `BLINK_MS`).
+Nahtloser Umlauf: der Text wird intern ein zweites Mal um seine eigene
+Breite versetzt gezeichnet, damit beim Auslaufen der ersten Kopie
+nahtlos die naechste folgt.
+
+Laufband-Inhalt (Referenz, Verdrahtung folgt spaeter): Pipe-getrennt,
+zusammengesetzt aus vorhandenen Modulen — maximale Uebertemperatur je
+Kanal AUS der Historie (`lib/History/`, raw-basiert, NICHT der
+Live-Wert), Betriebsstunden, freier Heap (`lib/SelfDiag/`) und Zeit
+seit dem letzten gelatchten Fehler, z. B.:
+`"dT | #1:12K | #2:15K | #3:9K | #4:11K | Up:42h | Heap:142k | last err:5m **   "`
+
+### Takt: Lebenszeichen, Blinken und Scrollen (alles aus dem Regelkreis)
 `heartbeatChar(phase)`: `phase != 0` -> `HEARTBEAT_A`, sonst
-`HEARTBEAT_B`. **Wichtig:** `phase` kommt ausschliesslich aus dem
+`HEARTBEAT_B` (Zelle 0;0). Ebenso `phaseOn` (Blinken, `BLINK_MS`) und
+`scrollOffsetPx` (Laufband, `SCROLL_MS`/`SCROLL_STEP_PX`) fuer
+`renderFinal()`. **Wichtig:** alle drei kommen ausschliesslich aus dem
 Regelkreis (Hauptloop, bevorzugt ein Zaehler, der pro erfolgreichem
 Sensor-/Regelzyklus erhoeht wird), niemals aus einem eigenen
-Display-Timer. Ein eigener Timer wuerde weiterlaufen, selbst wenn der
-Sensorpfad haengt — das Lebenszeichen beweist Liveness nur, wenn sein
-Takt tatsaechlich aus dem ueberwachten Kreislauf stammt.
+Display-Timer/-Task. Ein eigener Timer wuerde diese Freeze-Aussage
+zerstoeren: Blinken und Laufband liefen weiter, obwohl die Regelung
+haengt. Umgekehrt gilt mit dem Takt aus dem Regelkreis: friert der
+Loop/Sensorpfad ein, frieren Lebenszeichen, Blinken UND Scrollen
+gleichzeitig ein — ein zusaetzlicher, sofort sichtbarer
+Freeze-Indikator.
+
+### Ack-Zustandslogik (`lib/Health/AckLatch.h`, pro Latch)
+Das `acked`-Flag haengt PRO Fehler-Latch (`ChannelLatch`), nicht
+global. Ein Tastendruck (siehe "Ack-Taster") quittiert ALLE aktuell
+aktiven, unquittierten Latches auf einmal (`ackAllActive()`) — passt
+zum Ein-Taster-Geraet, es gibt keine Kanalauswahl.
+
+**Karenzzone (`ACK_GRACE_MS`, config.h):** ein Fehler, der juenger als
+`ACK_GRACE_MS` ist, kann noch NICHT quittiert werden (`canAck()`).
+Loest den Race "Ack genau im Moment eines neuen Fehlers" ohne
+Zeitstempel-Tricks und erzwingt bewusste Kenntnisnahme statt
+reflexartigem Wegdruecken direkt beim Ausloesen.
+
+Neue Fehler nach einem Ack sind eigenstaendige Ereignisse: sie starten
+mit `acked = false` und vollem Alarm, unabhaengig davon, ob kurz zuvor
+andere Latches quittiert wurden. Gemischte Zustaende sind normal — z. B.
+Kanal #2 laengst quittiert (leises Blinken mit Marke), Kanal #3 gerade
+erst ausgefallen (lautes Blinken mit Rahmen in der Aus-Phase).
+
+LED und Speaker (siehe dortige Abschnitte) lesen denselben
+Latch-Zustand: unquittierter Fehler -> Ton + LED-Fehlermuster; nach Ack
+-> Ton aus, LED zurueck auf Heartbeat. Nur referenziert — die
+Verdrahtung in den echten Health-Monitor folgt erst, wenn dieser gebaut
+wird.
 
 ### Ambient-Umbau (Regelungslogik — Referenz, Health-Monitor existiert noch nicht)
 Ambient durchlaeuft (sobald der Health-Monitor existiert) dieselbe
