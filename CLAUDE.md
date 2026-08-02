@@ -36,6 +36,8 @@ lib/Health/           Runtime-Monitor, Latch, Alarm
 lib/Dashboard/        Anzeige-Layout + Render-Logik, ueber IDisplay testbar
 lib/SelfDiag/         Freie Diagnose-Zeile (Heap/Loop-Hz), Komfort
 lib/StatusLed/        Heartbeat-Grundzustand fuer die LED (GPIO2)
+lib/Led/              LED-Musterlogik (Heartbeat/Fault), ueber ILed testbar
+lib/History/          Persistente Max-Uebertemperatur, ueber IHistoryStore testbar
 src/main.cpp          Reale HAL-Implementierung, nur env:esp32
 test/                 Unity-Tests mit FakeHal
 config.h              Zentrale Konfiguration
@@ -389,6 +391,82 @@ vermischen.
 1. Ebene 1 (Serial-Log ueber HAL)
 2. Ebene 2 (LittleFS-Ringpuffer)
 3. Ebene 3 (WLAN-Abruf) — separat, spaeter, optional.
+
+---
+
+## Verschleiss-Historie
+
+### Zweck
+Erkennen, ob sich die Kuehlung ueber Wochen/Monate verschlechtert
+(Waermeleitpaste altert, Luefterlager werden schwergaengig, Staub
+setzt sich). Dafuer muss der bisher hoechste gemessene Wert je Kanal
+auch einen Firmware-Flash ueberleben — ein Wert nur im RAM waere nach
+jedem Reflash wieder bei null.
+
+Gespeichert wird die maximale **Uebertemperatur ueber Ambient**
+(`rawSondeC - rawAmbC`), NICHT der Roh-Absolutwert und NICHT der
+kalibrierte Wert (`dieTempC()`, siehe "Sensor-Kalibrierung"). Ein
+Absolut-Rekord von z. B. 78 °C ist teils nur ein warmer Sommertag im
+Zimmer; die Uebertemperatur ist die tatsaechliche
+Degradierungs-Groesse. Raw-basiert (ohne `SENSOR_K`), damit die
+Historie bei einer spaeteren Nachkalibrierung von `k` gueltig bleibt —
+konsistent zur bestehenden Rohwert-Regel aus `lib/SensorCal/`.
+
+### Datenmodell (`lib/History/History.h`, `HistoryData`)
+- `maxDeltaC[4]`: maximale Uebertemperatur je VSA-Kanal (VSA1.1,
+  VSA1.2, VSA2.1, VSA2.2), `max(rawSondeC - rawAmbC)`.
+- `maxAmbC`: maximaler Ambient-Rohwert (Gehaeuse-Rekord).
+- Kein Zeitstempel "wann erreicht" in v1 — optionale spaetere
+  Erweiterung, kein Blocker fuer den ersten Ausbau.
+
+### Reine Logik: `tryUpdateMax()`
+```
+bool tryUpdateMax(float& stored, float candidate, float eps);
+```
+`candidate` zaehlt nur als neuer Rekord, wenn er `stored` um
+mindestens `eps` (`HISTORY_EPSILON_C`, config.h) uebersteigt — filtert
+Sensorrauschen (DS18B20 ±0,06 K bei 12 Bit) und Luftturbulenz.
+Rueckgabe `true` = neuer Rekord ("dirty", muss spaeter persistiert
+werden).
+
+### Persistenz hinter Interface (`lib/History/IHistoryStore.h`)
+`IHistoryStore::load(HistoryData&)` / `save(const HistoryData&)`.
+Reale Implementierung (`Esp32HistoryStore` in `src/main.cpp`, nur
+`env:esp32`) ueber NVS (`Preferences`-Bibliothek). **Wichtig:** NVS
+liegt in einer EIGENEN Flash-Partition, die ein normaler
+`pio run -t upload` NICHT ueberschreibt — die Historie ueberlebt das
+Flashen der Firmware. Nur ein voller Chip-Erase (`esptool
+erase_flash`) loescht sie. Genau das gewuenschte Verhalten.
+(Alternative waere LittleFS, das fuers Logging ohnehin existiert — NVS
+ist fuer die paar Zahlen leichter; das Interface haelt beides
+austauschbar.) Fake-Test-Double `FakeHistoryStore` protokolliert
+`save()`-Aufrufe fuer Tests.
+
+### Flash-Verschleiss-Schutz (gepuffertes Schreiben, `HistoryTracker`)
+`lib/History/HistoryTracker.h` haelt die Max-Werte im RAM und setzt
+ein dirty-Flag bei einem echten Rekord, schreibt aber NICHT sofort.
+Committet wird nur periodisch: alle `HISTORY_COMMIT_MS` (config.h,
+Default 5 Minuten) UND nur wenn dirty. Begruendung: NVS/Flash haben
+begrenzte Schreibzyklen (~100k); ein Schreiben im Sekundentakt bei
+jedem Rausch-Peak wuerde sie unnoetig abnutzen. Beim Boot belegt
+`HistoryTracker::begin(store)` die RAM-Werte aus der Historie vor,
+damit alte Rekorde sofort wieder gelten.
+
+### Einbindung (Referenz, Verdrahtung folgt spaeter)
+Wird pro Regelzyklus mit `(rawSondeC, rawAmbC)` je Kanal gefuettert
+(`updateChannel()`/`updateAmbient()`), aktualisiert die Maxima ueber
+`tryUpdateMax()`. Der Commit ist im Loop gepuffert (`tick()`). Wie
+Logging/SelfDiag: Komfort/Diagnose, nicht sicherheitskritisch — faellt
+die Persistenz aus, darf das die Regelung nicht beeinflussen
+(`save()`-Fehler werden abgefangen und ignoriert). Die eigentliche
+Verdrahtung in `setup()/loop()` folgt erst mit der realen
+Sensor-Datenquelle, analog zu Dashboard und LED.
+
+### Grenze
+Ein einzelner Max-Wert zeigt Degradierung nur grob; wirklich
+aussagekraeftig ist der Vergleich bei **vergleichbarer Last**. Die
+Kopplung an einen Lastindikator ist eine spaetere Ausbaustufe, nicht
+Teil von v1.
 
 ---
 

@@ -6,6 +6,7 @@
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
+#include <Preferences.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include "config.h"
@@ -13,6 +14,7 @@
 #include "BootSelfTest.h"
 #include "IDisplay.h"
 #include "ILed.h"
+#include "IHistoryStore.h"
 
 namespace {
 
@@ -264,6 +266,36 @@ public:
 
   void set(bool on) override {
     digitalWrite(PIN_LED, on ? HIGH : LOW);
+  }
+};
+
+// Reale IHistoryStore-Implementierung ueber NVS (Preferences), siehe
+// lib/History/ und CLAUDE.md "Verschleiss-Historie". NVS liegt in
+// einer EIGENEN Flash-Partition, die ein normaler "pio run -t upload"
+// NICHT ueberschreibt -- die Historie ueberlebt das Flashen der
+// Firmware, nur ein voller Chip-Erase (esptool erase_flash) loescht
+// sie. Noch NICHT in setup()/loop() instanziiert: dafuer fehlt die
+// Sensor-Datenquelle, die erst der spaetere Regelkreis liefert.
+class Esp32HistoryStore : public IHistoryStore {
+public:
+  bool load(HistoryData& data) override {
+    Preferences prefs;
+    if (!prefs.begin("history", /*readOnly=*/true)) {
+      return false;
+    }
+    const size_t got = prefs.getBytes("data", &data, sizeof(HistoryData));
+    prefs.end();
+    return got == sizeof(HistoryData);
+  }
+
+  bool save(const HistoryData& data) override {
+    Preferences prefs;
+    if (!prefs.begin("history", /*readOnly=*/false)) {
+      return false;
+    }
+    const size_t written = prefs.putBytes("data", &data, sizeof(HistoryData));
+    prefs.end();
+    return written == sizeof(HistoryData);
   }
 };
 

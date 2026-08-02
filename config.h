@@ -255,3 +255,18 @@ constexpr uint8_t PIN_LED = 2;  // Strapping-Pin, nach Boot als Ausgang unkritis
 constexpr uint16_t LED_FAULT_ON_MS    = 200;
 constexpr uint16_t LED_FAULT_GAP_MS   = 200;
 constexpr uint16_t LED_FAULT_PAUSE_MS = 600;
+
+// -------------------------------------------------------------
+//  13. VERSCHLEISS-HISTORIE (persistente Max-Uebertemperatur,
+//      siehe CLAUDE.md "Verschleiss-Historie", lib/History/)
+// -------------------------------------------------------------
+// Mindest-Zuwachs, den ein neuer Wert gegenueber dem gespeicherten
+// Maximum haben muss, um als echter Rekord zu zaehlen -- filtert
+// Sensorrauschen (DS18B20 ±0,06 K bei 12 Bit) und Luftturbulenz.
+constexpr float HISTORY_EPSILON_C = 0.5f;
+
+// Gepufferter NVS-Commit-Takt: Flash/NVS haben begrenzte
+// Schreibzyklen (~100k) -- ein neuer Rekord wird sofort im RAM
+// uebernommen, aber erst nach diesem Intervall tatsaechlich
+// persistiert, nicht bei jedem einzelnen Rausch-Peak.
+constexpr uint32_t HISTORY_COMMIT_MS = 300000;  // 5 Minuten
