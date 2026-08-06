@@ -62,9 +62,12 @@ public:
   // Additiv neben render() -- aendert nichts an dessen Verhalten.
   //
   // `debugMode` (siehe config.h DEBUG_SINGLE_CHANNEL): zeigt statt des
-  // Lebenszeichens ein grosses, im Blink-Takt invertierendes "D" in
-  // Zelle 0;0 -- unuebersehbarer Hinweis, dass nur ein Teil der Kanaele
-  // real bestueckt ist und der Rest bewusst als Idle-Platzhalter laeuft.
+  // Lebenszeichens ein "D" in Zelle 0;0, das im Blink-Takt invertiert.
+  // "Gross" heisst hier: die ganze Kopfzelle wird als Block gefuellt
+  // (wie eine Statuszelle), nicht ein vergroesserter Font -- die Zeile
+  // ist dafuer zu niedrig (siehe Dashboard.cpp) -- unuebersehbarer
+  // Hinweis, dass nur ein Teil der Kanaele real bestueckt ist und der
+  // Rest bewusst als Idle-Platzhalter laeuft.
   void renderFinal(const FinalDashboardData& d, bool phaseOn, int32_t scrollOffsetPx,
                     bool debugMode);
 

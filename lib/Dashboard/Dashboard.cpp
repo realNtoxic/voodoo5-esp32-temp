@@ -153,25 +153,28 @@ uint8_t chFillWidth(uint8_t col) {
 
 }  // namespace
 
-namespace {
-constexpr uint8_t kDebugMarkSize = 2;  // "gross": doppelte Standardgroesse
-}  // namespace
-
 void Dashboard::renderFinal(const FinalDashboardData& d, bool phaseOn, int32_t scrollOffsetPx,
                              bool debugMode) {
   display_.clear();
 
-  // Kopfzeile, Zelle 0;0: im Debug-Modus ein grosses, im Blink-Takt
+  // Kopfzeile, Zelle 0;0: im Debug-Modus ein im Blink-Takt
   // invertierendes "D" statt des Lebenszeichens -- siehe config.h
-  // DEBUG_SINGLE_CHANNEL. Row 0 hat keine Zeile darueber, deshalb hier
-  // kein "y - 1"-Polster wie bei den Statuszellen.
+  // DEBUG_SINGLE_CHANNEL. "Gross" heisst hier: die gesamte Kopfzelle
+  // 0;0 wird als Block gefuellt (wie eine Statuszelle), NICHT ein
+  // vergroesserter Font -- CH_ROW_Y[1]-CH_ROW_Y[0] sind nur 10 px,
+  // ein groesserer Font wuerde in die Temp-Zeile darunter hineinlaufen
+  // (siehe disptest-Layoutdefinition, aus der CH_ROW_Y/CH_COL_X/
+  // CH_CELL_W stammen). Breite ueber chFillWidth() an die naechste
+  // Spaltengrenze geclippt, exakt wie bei den Statuszellen unten. Row 0
+  // hat keine Zeile darueber, deshalb hier kein "y - 1"-Polster wie bei
+  // den Statuszellen.
   if (debugMode) {
-    const uint8_t markW = static_cast<uint8_t>(6 * kDebugMarkSize);
-    const uint8_t markH = static_cast<uint8_t>(8 * kDebugMarkSize);
+    const uint8_t markW = chFillWidth(0);
+    const uint8_t markH = static_cast<uint8_t>(8 * TXT_SIZE_HEAD + 1);
     if (phaseOn) {
       display_.fillRect(CH_COL_X[0], CH_ROW_Y[0], markW, markH);
     }
-    display_.drawText(CH_COL_X[0], CH_ROW_Y[0], "D", kDebugMarkSize, phaseOn);
+    display_.drawText(CH_COL_X[0], CH_ROW_Y[0], "D", TXT_SIZE_HEAD, phaseOn);
   } else {
     const char hb[2] = { phaseOn ? HEARTBEAT_A : HEARTBEAT_B, '\0' };
     display_.drawText(CH_COL_X[0], CH_ROW_Y[0], hb, TXT_SIZE_HEAD, false);

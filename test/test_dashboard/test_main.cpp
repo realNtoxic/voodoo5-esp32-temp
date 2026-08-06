@@ -279,7 +279,11 @@ static void test_render_final_is_deterministic_for_same_inputs() {
 }
 
 // Debug-Modus (siehe config.h DEBUG_SINGLE_CHANNEL): Zelle 0;0 zeigt
-// ein grosses "D" statt des Lebenszeichens, invertiert im Blink-Takt.
+// ein "D" statt des Lebenszeichens, invertiert im Blink-Takt. "Gross"
+// heisst: die ganze Kopfzelle wird als Block gefuellt (Breite ueber
+// chFillWidth() an CH_CELL_W[0]=18 geclippt, Hoehe 8*TXT_SIZE_HEAD+1=9,
+// beides innerhalb der 10 px, die CH_ROW_Y[1]-CH_ROW_Y[0] hergeben) --
+// NICHT ein vergroesserter Font, der in die Temp-Zeile darunter liefe.
 static void test_render_final_debug_mode_shows_inverted_d_in_phase() {
   const FinalDashboardData d = allOkFinalData();
 
@@ -287,14 +291,14 @@ static void test_render_final_debug_mode_shows_inverted_d_in_phase() {
   Dashboard dashOn(fdOn);
   dashOn.renderFinal(d, /*phaseOn=*/true, 0, /*debugMode=*/true);
   TEST_ASSERT_EQUAL_STRING("clear", fdOn.calls[0].c_str());
-  TEST_ASSERT_EQUAL_STRING("fillRect:0:0:12:16", fdOn.calls[1].c_str());
-  TEST_ASSERT_EQUAL_STRING("drawText:0:0:D:2:1", fdOn.calls[2].c_str());
+  TEST_ASSERT_EQUAL_STRING("fillRect:0:0:18:9", fdOn.calls[1].c_str());
+  TEST_ASSERT_EQUAL_STRING("drawText:0:0:D:1:1", fdOn.calls[2].c_str());
 
   FakeDisplay fdOff;
   Dashboard dashOff(fdOff);
   dashOff.renderFinal(d, /*phaseOn=*/false, 0, /*debugMode=*/true);
   TEST_ASSERT_EQUAL_STRING("clear", fdOff.calls[0].c_str());
-  TEST_ASSERT_EQUAL_STRING("drawText:0:0:D:2:0", fdOff.calls[1].c_str());
+  TEST_ASSERT_EQUAL_STRING("drawText:0:0:D:1:0", fdOff.calls[1].c_str());
 }
 
 // Debug-Modus aendert nichts ausserhalb von Zelle 0;0 -- derselbe

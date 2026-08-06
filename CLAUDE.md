@@ -216,11 +216,14 @@ fuer nicht vorhandene Hardware zeigen. `DEBUG_SINGLE_CHANNEL = true`
 haelt Kanaele #2-#4 und Ambient bewusst auf `Idle` -- sie werden weder
 gelesen noch auf Fehler geprueft, nur Kanal #1 laeuft real (Sensor ueber
 `SENSOR_ROM[ROLE_VSA1_1]`, Luefter ueber `FAN[ROLE_VSA1_1]`). Sichtbar
-auf dem Dashboard an einem grossen, im Blink-Takt invertierenden "D" in
-Zelle 0;0 statt des Lebenszeichens (siehe "Takt" unten) -- damit ist auf
-einen Blick klar, dass es sich um den reduzierten Bankaufbau handelt,
-nicht um den fertigen 4-Kanal-Betrieb. `false` (Vollbetrieb, alle 4
-Kanaele + Ambient) ist noch nicht implementiert.
+auf dem Dashboard an Zelle 0;0 statt des Lebenszeichens: ein "D", dessen
+Kopfzelle im Blink-Takt komplett invertiert (Block, exakt wie eine
+Statuszelle, geclippt an `CH_CELL_W[0]`/`CH_ROW_Y[1]`) -- NICHT ein
+vergroesserter Font, dafuer ist die Kopfzeile mit 10 px zu niedrig
+(siehe Dashboard.cpp) -- damit ist auf einen Blick klar, dass es sich um
+den reduzierten Bankaufbau handelt, nicht um den fertigen 4-Kanal-
+Betrieb. `false` (Vollbetrieb, alle 4 Kanaele + Ambient) ist noch nicht
+implementiert.
 
 Sensor-Poll und PWM/Tacho fuer Kanal #1 laufen bereits nicht-blockierend
 (Architektur-Regel 4): `DallasTemperature::setWaitForConversion(false)`
@@ -517,9 +520,9 @@ Teil von v1.
   Zeilentyp (siehe "Laufband" unten). Seit dem Bankaufbau-Schritt
   (`DEBUG_SINGLE_CHANNEL`, siehe "Regelmodell") real in `setup()/loop()`
   verdrahtet: Kanal #1 zeigt echte Sensor-/Luefterwerte, Kanaele #2-#4
-  und Ambient laufen als Idle-Platzhalter. `debugMode` zeigt dabei ein
-  grosses, im Blink-Takt invertierendes "D" in Zelle 0;0 statt des
-  Lebenszeichens (siehe "Takt" unten).
+  und Ambient laufen als Idle-Platzhalter. `debugMode` zeigt dabei in
+  Zelle 0;0 statt des Lebenszeichens ein "D" mit komplett invertierter
+  Kopfzelle im Blink-Takt (siehe "Takt" unten).
 - Vier Kanalspalten `#1`..`#4` nach finalem `COL_X` (vom OLED-Tool
   bestaetigt, siehe `tools/display_test/`); etwaiger Restplatz rechts
   bleibt fuer kuenftige Optionen frei.
@@ -592,8 +595,8 @@ Uptime/letzter Fehler folgen, sobald diese Module verdrahtet sind.
 ### Takt: Lebenszeichen, Blinken und Scrollen (alles aus dem Regelkreis)
 `heartbeatChar(phase)`: `phase != 0` -> `HEARTBEAT_A`, sonst
 `HEARTBEAT_B` (Zelle 0;0) -- im Bankaufbau-Modus (`DEBUG_SINGLE_CHANNEL`)
-zeigt `renderFinal()` dort stattdessen ein grosses, im Blink-Takt
-invertierendes "D" (siehe "Bankaufbau-Modus" oben). Ebenso `phaseOn`
+zeigt `renderFinal()` dort stattdessen ein "D" mit komplett invertierter
+Kopfzelle im Blink-Takt (siehe "Bankaufbau-Modus" oben). Ebenso `phaseOn`
 (Blinken, `BLINK_MS`) und `scrollOffsetPx` (Laufband,
 `SCROLL_MS`/`SCROLL_STEP_PX`) fuer `renderFinal()`. **Wichtig:** alle
 kommen ausschliesslich aus dem Regelkreis (Hauptloop, bevorzugt ein
