@@ -33,7 +33,12 @@ public:
   virtual void clearRect(uint8_t x, uint8_t y, uint8_t w, uint8_t h) = 0;
 
   virtual void hLine(uint8_t y) = 0;  // volle Breite
-  virtual void vLine(uint8_t x) = 0;  // volle Hoehe
+
+  // Senkrechte Linie ab y=0, `height` Pixel lang. Der Aufrufer bestimmt
+  // die Laenge explizit (z. B. bis zum Ende der Statuszeile) -- eine
+  // fest verdrahtete volle Displayhoehe wuerde in Zeile 5 (SelfDiag/
+  // Ambient/Laufband) hineinlaufen, siehe tools/display_test/ Referenz.
+  virtual void vLine(uint8_t x, uint8_t height) = 0;
 
   virtual void present() = 0;
 };

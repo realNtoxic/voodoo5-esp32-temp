@@ -251,8 +251,8 @@ public:
     display_.drawFastHLine(0, y, OLED_WIDTH, SSD1306_WHITE);
   }
 
-  void vLine(uint8_t x) override {
-    display_.drawFastVLine(x, 0, OLED_HEIGHT, SSD1306_WHITE);
+  void vLine(uint8_t x, uint8_t height) override {
+    display_.drawFastVLine(x, 0, height, SSD1306_WHITE);
   }
 
   void present() override {

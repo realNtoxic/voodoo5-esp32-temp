@@ -120,10 +120,14 @@ void Dashboard::render(const DashboardData& d, uint8_t phase) {
   drawStatusCell(3, d.amb.status, phase);
 
   if (VSEP) {
+    // Endet an der Unterkante der Statuszeile (nicht volle
+    // Displayhoehe) -- Zeile 5 (SelfDiag) bleibt frei, siehe
+    // tools/display_test/ Referenz.
+    const uint8_t vLineHeight = static_cast<uint8_t>(ROW_Y[3] + 8 * TXT_SIZE_VAL);
     for (uint8_t col = 0; col < 3; ++col) {
       const uint8_t gapStart = static_cast<uint8_t>(COL_X[col] + CELL_W[col]);
       const uint8_t gapEnd = COL_X[col + 1];
-      display_.vLine(static_cast<uint8_t>((gapStart + gapEnd) / 2));
+      display_.vLine(static_cast<uint8_t>((gapStart + gapEnd) / 2), vLineHeight);
     }
   }
 
@@ -222,10 +226,14 @@ void Dashboard::renderFinal(const FinalDashboardData& d, bool phaseOn, int32_t s
   }
 
   if (CH_VSEP) {
+    // Endet an der Unterkante der Statuszeile (nicht volle
+    // Displayhoehe) -- Zeile 5 (Ambient-Segment/Laufband) bleibt frei,
+    // siehe tools/display_test/ Referenz (dortiges vLineBottom).
+    const uint8_t vLineHeight = static_cast<uint8_t>(CH_ROW_Y[3] + 8 * TXT_SIZE_VAL);
     for (uint8_t col = 0; col < 4; ++col) {
       const uint8_t gapStart = static_cast<uint8_t>(CH_COL_X[col] + CH_CELL_W[col]);
       const uint8_t gapEnd = CH_COL_X[col + 1];
-      display_.vLine(static_cast<uint8_t>((gapStart + gapEnd) / 2));
+      display_.vLine(static_cast<uint8_t>((gapStart + gapEnd) / 2), vLineHeight);
     }
   }
 

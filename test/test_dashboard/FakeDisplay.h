@@ -40,8 +40,8 @@ public:
     calls.push_back("hLine:" + std::to_string(y));
   }
 
-  void vLine(uint8_t x) override {
-    calls.push_back("vLine:" + std::to_string(x));
+  void vLine(uint8_t x, uint8_t height) override {
+    calls.push_back("vLine:" + std::to_string(x) + ":" + std::to_string(height));
   }
 
   void present() override {
