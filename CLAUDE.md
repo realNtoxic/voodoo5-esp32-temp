@@ -237,6 +237,13 @@ den reduzierten Bankaufbau handelt, nicht um den fertigen 4-Kanal-
 Betrieb. `false` (Vollbetrieb, alle 4 Kanaele + Ambient) ist noch nicht
 implementiert.
 
+Aus demselben Grund haelt `CURVE` (config.h, Block 4) aktuell
+DEBUG-Kennlinienwerte (Einstieg 28 C/Duty 30, Volllast ab 32 C) statt
+der Produktivwerte (45/40/70/20/100): auf dem Steckbrett ohne GPU-Last
+laesst sich 28-32 C leicht per Fingerwaerme erzeugen, 45-70 C nicht.
+Die Produktivwerte stehen als Kommentar direkt neben `CURVE` -- vor dem
+Einbau in die Karte zurueckstellen.
+
 Sensor-Poll und PWM/Tacho fuer Kanal #1 laufen bereits nicht-blockierend
 (Architektur-Regel 4): `DallasTemperature::setWaitForConversion(false)`
 plus ein zweiphasiger `millis()`-Zustandsautomat (anstossen ->

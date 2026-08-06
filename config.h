@@ -133,11 +133,17 @@ struct FanCurve {
   uint8_t maxDuty;   // PWM % Obergrenze
 };
 
+// DEBUG-Werte fuer den Bankaufbau (siehe DEBUG_SINGLE_CHANNEL): auf dem
+// Steckbrett ohne GPU-Last erreicht der Sensor die Produktivschwellen
+// (45/70 C) praktisch nie. Mit Fingerwaerme laesst sich 28-32 C dagegen
+// leicht erzeugen -- reicht, um Kickstart/Rampe/Volllast am echten
+// Luefter durchzuspielen. Produktivwerte (vor Einbau in die Karte
+// zurueckstellen): { 45.0f, 40.0f, 70.0f, 20, 100 }.
 constexpr FanCurve CURVE = {
-  45.0f,   // onC
-  40.0f,   // offC  -> 5 K Totband gegen Pumpen
-  70.0f,   // fullC
-  20,      // minDuty: Noctua-Spec-Untergrenze (@20% PWM)
+  28.0f,   // onC     (Produktiv: 45.0f)
+  23.0f,   // offC    (Produktiv: 40.0f) -> 5 K Totband gegen Pumpen, wie im Original
+  32.0f,   // fullC   (Produktiv: 70.0f)
+  30,      // minDuty (Produktiv: 20)
   100,     // maxDuty
 };
 
@@ -165,7 +171,8 @@ constexpr uint16_t FAN_STARTUP_MS       = 800;    // Anlaufzeit im Selbsttest
 // -------------------------------------------------------------
 //  5. STATUS-SCHWELLEN
 // -------------------------------------------------------------
-constexpr float WARN_C = 70.0f;   // Ok -> Warn (identisch mit CURVE.fullC)
+constexpr float WARN_C = CURVE.fullC;   // Ok -> Warn (identisch mit CURVE.fullC,
+                                         // bleibt so auch bei DEBUG-Kennlinienwerten korrekt)
 
 // -------------------------------------------------------------
 //  6. AKUSTIK

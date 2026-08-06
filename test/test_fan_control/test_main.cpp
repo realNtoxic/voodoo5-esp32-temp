@@ -36,28 +36,40 @@ static void test_effective_duty_is_max_of_curve_and_panic() {
 }
 
 // Testkonvention aus CLAUDE.md: "Hysterese: 42 C mit fanWasOn = false
-// -> 0; mit true -> laufender Duty." 42 C liegt im Totband zwischen
-// offC (40) und onC (45).
+// -> 0; mit true -> laufender Duty." Die 42 C aus dem Beispiel gehoeren
+// zur damaligen Produktivkennlinie (Totband 40-45); hier bewusst als
+// Mittelpunkt von offC/onC gerechnet, damit der Test unabhaengig von
+// den tatsaechlich in config.h eingetragenen Kennlinienwerten
+// (Produktiv- oder DEBUG-Kennlinie, siehe CURVE) gueltig bleibt.
 static void test_curve_duty_hysteresis_matches_testkonvention() {
-  TEST_ASSERT_EQUAL_UINT8(0, curveDuty(42.0f, false));
-  TEST_ASSERT_EQUAL_UINT8(CURVE.minDuty, curveDuty(42.0f, true));
+  const float midBand = (CURVE.offC + CURVE.onC) / 2.0f;
+  TEST_ASSERT_EQUAL_UINT8(0, curveDuty(midBand, false));
+  TEST_ASSERT_EQUAL_UINT8(CURVE.minDuty, curveDuty(midBand, true));
 }
 
 static void test_curve_duty_off_below_offC_regardless_of_fan_state() {
-  TEST_ASSERT_EQUAL_UINT8(0, curveDuty(35.0f, false));
-  TEST_ASSERT_EQUAL_UINT8(0, curveDuty(35.0f, true));
+  const float belowOff = CURVE.offC - 5.0f;
+  TEST_ASSERT_EQUAL_UINT8(0, curveDuty(belowOff, false));
+  TEST_ASSERT_EQUAL_UINT8(0, curveDuty(belowOff, true));
 }
 
 static void test_curve_duty_ramps_linearly_between_on_and_full() {
+  const float span = CURVE.fullC - CURVE.onC;
+  const float t25 = CURVE.onC + 0.25f * span;
+  const float t50 = CURVE.onC + 0.50f * span;
+  const auto expectedDuty = [](float t) {
+    return static_cast<uint8_t>(CURVE.minDuty + t * (CURVE.maxDuty - CURVE.minDuty));
+  };
+
   TEST_ASSERT_EQUAL_UINT8(CURVE.minDuty, curveDuty(CURVE.onC, false));
-  TEST_ASSERT_EQUAL_UINT8(40, curveDuty(51.25f, false));  // t = 0.25
-  TEST_ASSERT_EQUAL_UINT8(60, curveDuty(57.5f, false));   // t = 0.5
+  TEST_ASSERT_EQUAL_UINT8(expectedDuty(0.25f), curveDuty(t25, false));
+  TEST_ASSERT_EQUAL_UINT8(expectedDuty(0.50f), curveDuty(t50, false));
   TEST_ASSERT_EQUAL_UINT8(CURVE.maxDuty, curveDuty(CURVE.fullC, false));
 }
 
 static void test_curve_duty_full_at_and_above_fullC() {
   TEST_ASSERT_EQUAL_UINT8(CURVE.maxDuty, curveDuty(CURVE.fullC, false));
-  TEST_ASSERT_EQUAL_UINT8(CURVE.maxDuty, curveDuty(90.0f, false));
+  TEST_ASSERT_EQUAL_UINT8(CURVE.maxDuty, curveDuty(CURVE.fullC + 20.0f, false));
 }
 
 // Kernanforderung aus dem Regelmodell: 4 unabhaengige Regelkreise, kein
@@ -65,11 +77,13 @@ static void test_curve_duty_full_at_and_above_fullC() {
 // die Reihenfolge, in der die vier Kreise abgefragt werden, darf das
 // Ergebnis eines einzelnen Kreises nicht beeinflussen.
 static void test_four_independent_circuits_no_cross_coupling() {
-  const float ch1Temp = 90.0f;   // ueber fullC -> maxDuty
+  const float ch1Temp = CURVE.fullC + 20.0f;               // ueber fullC -> maxDuty
   const bool  ch2FanWasOn = true;
-  const float ch2Temp = 42.0f;   // Totband, an -> minDuty
-  const float ch3Temp = 35.0f;   // unter offC -> 0
-  const float ch4Temp = 57.5f;   // Rampe -> 60
+  const float ch2Temp = (CURVE.offC + CURVE.onC) / 2.0f;   // Totband, an -> minDuty
+  const float ch3Temp = CURVE.offC - 5.0f;                 // unter offC -> 0
+  const float ch4Temp = CURVE.onC + 0.50f * (CURVE.fullC - CURVE.onC);  // Rampe, t=0.5
+  const uint8_t ch4Expected =
+      static_cast<uint8_t>(CURVE.minDuty + 0.50f * (CURVE.maxDuty - CURVE.minDuty));
 
   const uint8_t ch1 = curveDuty(ch1Temp, false);
   const uint8_t ch2 = curveDuty(ch2Temp, ch2FanWasOn);
@@ -86,7 +100,7 @@ static void test_four_independent_circuits_no_cross_coupling() {
   TEST_ASSERT_EQUAL_UINT8(CURVE.maxDuty, ch1);
   TEST_ASSERT_EQUAL_UINT8(CURVE.minDuty, ch2);
   TEST_ASSERT_EQUAL_UINT8(0, ch3);
-  TEST_ASSERT_EQUAL_UINT8(60, ch4);
+  TEST_ASSERT_EQUAL_UINT8(ch4Expected, ch4);
 
   TEST_ASSERT_EQUAL_UINT8(ch1, ch1Again);
   TEST_ASSERT_EQUAL_UINT8(ch2, ch2Again);
