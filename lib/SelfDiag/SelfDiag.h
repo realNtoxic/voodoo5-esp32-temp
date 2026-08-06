@@ -14,7 +14,10 @@
 #include <cstddef>
 #include <cstdint>
 
-// Schreibt z. B. "Heap 142k 45Hz" nach out (immer nullterminiert,
-// notfalls abgeschnitten).
+// Schreibt z. B. "Heap:142k | Hz:45 *" nach out (immer nullterminiert,
+// notfalls abgeschnitten). Format wie das volle Laufband (siehe
+// CLAUDE.md "Laufband"): Wertepaare als "Schluessel:Wert", durch " | "
+// getrennt; das "*" am Ende markiert die Stelle, an der die Zeile beim
+// nahtlosen Umlauf (siehe ScrollLine.h) wieder von vorn beginnt.
 void formatSelfDiagLine(char* out, size_t outSize, uint32_t freeHeapBytes,
                          uint16_t loopHz);

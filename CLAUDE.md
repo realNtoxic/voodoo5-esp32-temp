@@ -589,8 +589,12 @@ NICHT der Live-Wert), Betriebsstunden, freier Heap (`lib/SelfDiag/`)
 und Zeit seit dem letzten gelatchten Fehler, z. B.:
 `"dT | #1:12K | #2:15K | #3:9K | #4:11K | Up:42h | Heap:142k | last err:5m **   "`
 Seit dem Bankaufbau-Schritt laeuft bereits eine reduzierte Version
-(`formatSelfDiagLine()`, nur Heap + Loop-Hz) real im Laufband — Historie/
-Uptime/letzter Fehler folgen, sobald diese Module verdrahtet sind.
+(`formatSelfDiagLine()`, nur Heap + Loop-Hz) real im Laufband, in
+derselben Schreibweise wie die volle Version oben (Wertepaare als
+`Schluessel:Wert`, Pipe-getrennt, `*` markiert die Stelle, an der die
+Zeile beim nahtlosen Umlauf wieder von vorn beginnt), z. B.
+`"Heap:142k | Hz:45 *"` — Historie/Uptime/letzter Fehler folgen, sobald
+diese Module verdrahtet sind.
 
 ### Takt: Lebenszeichen, Blinken und Scrollen (alles aus dem Regelkreis)
 `heartbeatChar(phase)`: `phase != 0` -> `HEARTBEAT_A`, sonst
@@ -652,7 +656,8 @@ diese Module gebaut werden.
 
 ### SelfDiag (`lib/SelfDiag/`, Komfort)
 Formatiert freien Heap und Loop-Frequenz zu einer Zeile (z. B.
-"Heap 142k 45Hz") fuer `DashboardData.selfLine`. Wie Logging: Komfort,
+"Heap:142k | Hz:45 *", Schreibweise wie das volle Laufband, siehe
+"Laufband" oben) fuer `DashboardData.selfLine`. Wie Logging: Komfort,
 nicht im kritischen Regelpfad — faellt das Auslesen aus, darf das die
 Regelung nicht beeinflussen.
 

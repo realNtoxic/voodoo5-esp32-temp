@@ -69,7 +69,7 @@ constexpr ChannelDummy CHANNELS[4] = {
 };
 constexpr const char* AMB_TEMP     = "26";
 constexpr ChStatus    AMB_STATUS   = ChStatus::Warn;
-constexpr const char* SELFDIAG_REST = "Heap 142k  45Hz";
+constexpr const char* SELFDIAG_REST = "Heap:142k | Hz:45 *";
 
 Adafruit_SSD1306 display(OLED_WIDTH, OLED_HEIGHT, &Wire, -1);
 uint32_t lastPhaseSwitchMs = 0;

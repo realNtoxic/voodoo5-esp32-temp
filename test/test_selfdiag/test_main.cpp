@@ -9,9 +9,9 @@ void setUp() {}
 void tearDown() {}
 
 static void test_format_self_diag_line_basic() {
-  char buf[22];
+  char buf[24];
   formatSelfDiagLine(buf, sizeof(buf), 142 * 1024, 45);
-  TEST_ASSERT_EQUAL_STRING("Heap 142k 45Hz", buf);
+  TEST_ASSERT_EQUAL_STRING("Heap:142k | Hz:45 *", buf);
 }
 
 static void test_format_self_diag_line_truncates_safely() {
