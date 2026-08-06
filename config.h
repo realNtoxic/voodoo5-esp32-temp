@@ -301,7 +301,7 @@ constexpr uint8_t CH_CELL_W[5] = { 18, 24, 24, 24, 24 };
 constexpr uint8_t CH_ROW_Y[4]  = { 0, 10, 22, 34 };       // Kopf,Temp,rpm,Status
 constexpr bool    CH_HEADER_UNDERLINE = false;
 constexpr bool    CH_VSEP = true;
-constexpr uint8_t CH_SELFDIAG_Y = 53;
+constexpr uint8_t CH_SELFDIAG_Y = 43;  // 10px hoeher (Diagnose: naeher an Sta-Zeile/vLine-Ende)
 
 // Laufband (Zeile 5, rechts vom Ambient-Segment), siehe
 // lib/Dashboard/ScrollLine.h. Eigener Takt, getrennt von BLINK_MS --
