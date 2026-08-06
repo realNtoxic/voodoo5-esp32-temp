@@ -172,8 +172,10 @@ aber keine rpm-Anzeige (kein eigener Luefter, kein rpm-Konzept im
 Segment). Umschaltung ueber `millis()`, kein `delay(15000)`. Pixelwerte
 bereits auf echter Hardware ueber `tools/display_test/` abgestimmt.
 
-**Umsetzungsstand:** `lib/Dashboard/` ist noch auf dieses Layout
-umzustellen.
+**Umsetzungsstand:** `Dashboard::renderFinal()` implementiert dieses
+Layout und ist seit dem Bankaufbau-Schritt real verdrahtet (siehe
+"Regelmodell" `DEBUG_SINGLE_CHANNEL`) — aktuell mit nur Kanal #1 real
+bestueckt, `#2`-`#4` und Ambient als Idle-Platzhalter.
 
 ### Regelung
 Semi-passiv. Unter 40 C stehen die Luefter (0 %). Ab 45 C Kickstart 30 % /
@@ -205,6 +207,28 @@ ausschliesslich die Panik-Uebersteuerung (`ambientPanicActive()` /
 
 Alle vier Luefter teilen sich einen gemeinsamen Molex-Stromanschluss —
 nur die PWM-/Tacho-Signale sind pro Luefter separat.
+
+### Bankaufbau-Modus (`DEBUG_SINGLE_CHANNEL`, config.h)
+Solange nur VSA1.1/Fan1 physisch aufgebaut sind (Sensoren/Luefter 2-4
+und Ambient sind "in Beschaffung", siehe Hardware-Fallen), wuerde ein
+Regelkreis, der alle 5 Sonden erwartet, nach dem Boot dauerhaft Fehler
+fuer nicht vorhandene Hardware zeigen. `DEBUG_SINGLE_CHANNEL = true`
+haelt Kanaele #2-#4 und Ambient bewusst auf `Idle` -- sie werden weder
+gelesen noch auf Fehler geprueft, nur Kanal #1 laeuft real (Sensor ueber
+`SENSOR_ROM[ROLE_VSA1_1]`, Luefter ueber `FAN[ROLE_VSA1_1]`). Sichtbar
+auf dem Dashboard an einem grossen, im Blink-Takt invertierenden "D" in
+Zelle 0;0 statt des Lebenszeichens (siehe "Takt" unten) -- damit ist auf
+einen Blick klar, dass es sich um den reduzierten Bankaufbau handelt,
+nicht um den fertigen 4-Kanal-Betrieb. `false` (Vollbetrieb, alle 4
+Kanaele + Ambient) ist noch nicht implementiert.
+
+Sensor-Poll und PWM/Tacho fuer Kanal #1 laufen bereits nicht-blockierend
+(Architektur-Regel 4): `DallasTemperature::setWaitForConversion(false)`
+plus ein zweiphasiger `millis()`-Zustandsautomat (anstossen ->
+`SENSOR_CONV_MS` warten -> lesen) statt der blockierenden
+`requestTemperatures()`-Variante aus `tools/sensor_test/`/
+`tools/fan_test/` (dort als Wegwerf-Tool unkritisch, in der
+Hauptfirmware nicht zulaessig).
 
 ### Sensor-Kalibrierung (lastabhaengige Die-Korrektur)
 **Ein konstanter Offset ist physikalisch falsch** und wird nicht
@@ -477,27 +501,28 @@ Teil von v1.
 
 ### Dashboard-Klasse (`lib/Dashboard/`)
 - Zeichnet ausschliesslich ueber `IDisplay`
-  (`clear/drawText/fillRect/hLine/vLine/present`) — kein direkter
-  `Adafruit_SSD1306`-Zugriff in der Logik, dadurch nativ mit
-  `FakeDisplay` testbar. Reale Umsetzung (`Esp32Display` in
-  `src/main.cpp`) kapselt `Adafruit_SSD1306`, ist aber noch nicht in
-  `setup()/loop()` verdrahtet — dafuer fehlt die Sensor-/Luefter-
-  Datenquelle, die erst in einem spaeteren Schritt entsteht.
-- `Dashboard::render(const DashboardData&, uint8_t phase)` zeichnet zwei
-  Zeilentypen: die Kanal-Zeilen (4 Kanaele `#1`..`#4` plus Label-Spalte
-  links, 5 Spalten x 4 Zeilen nach `COL_X`/`ROW_Y`) und die freie
-  SelfDiag-Zeile (Zeile 5, `SELFDIAG_Y`, volle Breite, ausserhalb des
-  Rasters).
+  (`clear/drawText/fillRect/frameRect/clearRect/hLine/vLine/present`) —
+  kein direkter `Adafruit_SSD1306`-Zugriff in der Logik, dadurch nativ
+  mit `FakeDisplay` testbar. Reale Umsetzung (`Esp32Display` in
+  `src/main.cpp`) kapselt `Adafruit_SSD1306`.
+- `Dashboard::render(const DashboardData&, uint8_t phase)` (aelteres
+  3-Spalten-Layout) zeichnet zwei Zeilentypen: die Kanal-Zeilen (4
+  Kanaele `#1`..`#4` plus Label-Spalte links, 5 Spalten x 4 Zeilen nach
+  `COL_X`/`ROW_Y`) und die freie SelfDiag-Zeile (Zeile 5, `SELFDIAG_Y`,
+  volle Breite, ausserhalb des Rasters). Bleibt bestehen, wird aber in
+  `setup()/loop()` nicht mehr verwendet.
+- `Dashboard::renderFinal(const FinalDashboardData&, phaseOn,
+  scrollOffsetPx, debugMode)` implementiert das Ziel-Layout vollstaendig:
+  4 Kanalspalten + Ambient-Segment/Laufband in Zeile 5 als dritter
+  Zeilentyp (siehe "Laufband" unten). Seit dem Bankaufbau-Schritt
+  (`DEBUG_SINGLE_CHANNEL`, siehe "Regelmodell") real in `setup()/loop()`
+  verdrahtet: Kanal #1 zeigt echte Sensor-/Luefterwerte, Kanaele #2-#4
+  und Ambient laufen als Idle-Platzhalter. `debugMode` zeigt dabei ein
+  grosses, im Blink-Takt invertierendes "D" in Zelle 0;0 statt des
+  Lebenszeichens (siehe "Takt" unten).
 - Vier Kanalspalten `#1`..`#4` nach finalem `COL_X` (vom OLED-Tool
   bestaetigt, siehe `tools/display_test/`); etwaiger Restplatz rechts
   bleibt fuer kuenftige Optionen frei.
-- `Dashboard::renderFinal(const FinalDashboardData&, phaseOn,
-  scrollOffsetPx)` implementiert das Ziel-Layout vollstaendig: 4
-  Kanalspalten + Ambient-Segment/Laufband in Zeile 5 als dritter
-  Zeilentyp (siehe "Laufband" unten). Additiv neben `render()` -- das
-  bedient unveraendert das aeltere 3-Spalten-Layout weiter, bis es
-  darauf umgestellt wird. Wie `render()` noch nicht in `setup()/loop()`
-  verdrahtet (fehlende Sensor-Datenquelle).
 
 ### Layout-Regeln
 - Feste Zellbreiten (`CELL_W`). Eine invertierte Zelle (Warn/Err) fuellt
@@ -554,21 +579,27 @@ Nahtloser Umlauf: der Text wird intern ein zweites Mal um seine eigene
 Breite versetzt gezeichnet, damit beim Auslaufen der ersten Kopie
 nahtlos die naechste folgt.
 
-Laufband-Inhalt (Referenz, Verdrahtung folgt spaeter): Pipe-getrennt,
-zusammengesetzt aus vorhandenen Modulen — maximale Uebertemperatur je
-Kanal AUS der Historie (`lib/History/`, raw-basiert, NICHT der
-Live-Wert), Betriebsstunden, freier Heap (`lib/SelfDiag/`) und Zeit
-seit dem letzten gelatchten Fehler, z. B.:
+Laufband-Inhalt (volle Version als Referenz, Verdrahtung folgt spaeter):
+Pipe-getrennt, zusammengesetzt aus vorhandenen Modulen — maximale
+Uebertemperatur je Kanal AUS der Historie (`lib/History/`, raw-basiert,
+NICHT der Live-Wert), Betriebsstunden, freier Heap (`lib/SelfDiag/`)
+und Zeit seit dem letzten gelatchten Fehler, z. B.:
 `"dT | #1:12K | #2:15K | #3:9K | #4:11K | Up:42h | Heap:142k | last err:5m **   "`
+Seit dem Bankaufbau-Schritt laeuft bereits eine reduzierte Version
+(`formatSelfDiagLine()`, nur Heap + Loop-Hz) real im Laufband — Historie/
+Uptime/letzter Fehler folgen, sobald diese Module verdrahtet sind.
 
 ### Takt: Lebenszeichen, Blinken und Scrollen (alles aus dem Regelkreis)
 `heartbeatChar(phase)`: `phase != 0` -> `HEARTBEAT_A`, sonst
-`HEARTBEAT_B` (Zelle 0;0). Ebenso `phaseOn` (Blinken, `BLINK_MS`) und
-`scrollOffsetPx` (Laufband, `SCROLL_MS`/`SCROLL_STEP_PX`) fuer
-`renderFinal()`. **Wichtig:** alle drei kommen ausschliesslich aus dem
-Regelkreis (Hauptloop, bevorzugt ein Zaehler, der pro erfolgreichem
-Sensor-/Regelzyklus erhoeht wird), niemals aus einem eigenen
-Display-Timer/-Task. Ein eigener Timer wuerde diese Freeze-Aussage
+`HEARTBEAT_B` (Zelle 0;0) -- im Bankaufbau-Modus (`DEBUG_SINGLE_CHANNEL`)
+zeigt `renderFinal()` dort stattdessen ein grosses, im Blink-Takt
+invertierendes "D" (siehe "Bankaufbau-Modus" oben). Ebenso `phaseOn`
+(Blinken, `BLINK_MS`) und `scrollOffsetPx` (Laufband,
+`SCROLL_MS`/`SCROLL_STEP_PX`) fuer `renderFinal()`. **Wichtig:** alle
+kommen ausschliesslich aus dem Regelkreis (Hauptloop, bevorzugt ein
+Zaehler, der pro erfolgreichem Sensor-/Regelzyklus erhoeht wird),
+niemals aus einem eigenen Display-Timer/-Task. Ein eigener Timer wuerde
+diese Freeze-Aussage
 zerstoeren: Blinken und Laufband liefen weiter, obwohl die Regelung
 haengt. Umgekehrt gilt mit dem Takt aus dem Regelkreis: friert der
 Loop/Sensorpfad ein, frieren Lebenszeichen, Blinken UND Scrollen

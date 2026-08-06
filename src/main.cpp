@@ -7,14 +7,21 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <Preferences.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <cstring>
 #include "config.h"
 #include "Hal.h"
 #include "BootSelfTest.h"
 #include "IDisplay.h"
 #include "ILed.h"
 #include "IHistoryStore.h"
+#include "Dashboard.h"
+#include "FanControl.h"
+#include "SensorCal.h"
+#include "SelfDiag.h"
 
 namespace {
 
@@ -309,6 +316,262 @@ public:
 
 Esp32Hal hal;
 
+// =============================================================
+//  Regelkreis Kanal #1 (VSA1.1 / Fan1, siehe CLAUDE.md "Regelmodell").
+//  Erste reale Verdrahtung von Sensor + Luefter + Dashboard in die
+//  Hauptfirmware. DEBUG_SINGLE_CHANNEL (config.h) haelt die Kanaele
+//  #2-#4 und Ambient bewusst auf Idle-Platzhaltern, weil deren
+//  Hardware noch nicht existiert -- kein Health-Monitor faellt fuer
+//  fehlende Sensoren/Luefter um.
+//
+//  Bewusst NICHT Teil dieses Schritts (bleiben unveraendert nur als
+//  getestete, unverdrahtete Module bestehen): Ack-Taster, LED-
+//  Fehlermuster, Verschleiss-Historie, Logging, Watchdog. Siehe
+//  CLAUDE.md fuer den jeweiligen Umsetzungsstand.
+// =============================================================
+namespace {
+
+OneWire oneWire(PIN_ONEWIRE);
+DallasTemperature sensors(&oneWire);
+
+Esp32Display dashDisplay(Wire);
+Dashboard dashboard(dashDisplay);
+
+#if !defined(ESP_ARDUINO_VERSION_MAJOR) || ESP_ARDUINO_VERSION_MAJOR < 3
+constexpr uint8_t PWM_CHANNEL_FAN1 = 0;  // nur von der aelteren LEDC-API gebraucht
+#endif
+
+// LEDC-PWM-Abstraktion, unabhaengig von der ESP32-Arduino-Core-Version
+// (siehe CLAUDE.md "Fallen" zu ledcAttach vs. ledcSetup/ledcAttachPin;
+// hier fuer den Luefter tatsaechlich per LEDC statt Bit-Banging
+// umgesetzt, weil 25 kHz sauberes PWM braucht, keine Tonerzeugung).
+void fan1PwmBegin() {
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
+  ledcAttach(FAN[ROLE_VSA1_1].pwmPin, FAN_PWM_FREQ_HZ, FAN_PWM_RESOLUTION);
+#else
+  ledcSetup(PWM_CHANNEL_FAN1, FAN_PWM_FREQ_HZ, FAN_PWM_RESOLUTION);
+  ledcAttachPin(FAN[ROLE_VSA1_1].pwmPin, PWM_CHANNEL_FAN1);
+#endif
+}
+
+void fan1PwmWrite(uint32_t duty) {
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
+  ledcWrite(FAN[ROLE_VSA1_1].pwmPin, duty);
+#else
+  ledcWrite(PWM_CHANNEL_FAN1, duty);
+#endif
+}
+
+uint32_t percentToDuty(uint8_t pct) {
+  const uint32_t maxDuty = (1UL << FAN_PWM_RESOLUTION) - 1;
+  return (static_cast<uint32_t>(pct) * maxDuty) / 100;
+}
+
+volatile uint32_t fan1TachoPulses = 0;
+
+void IRAM_ATTR onFan1TachoFalling() {
+  ++fan1TachoPulses;
+}
+
+// --- Sensor-Poll, nicht-blockierend (Architektur-Regel 4: kein
+// delay() im Regelkreis). DallasTemperature blockiert per Default
+// waehrend der Conversion -- stattdessen zweiphasig: anstossen, nach
+// SENSOR_CONV_MS (millis()-getaktet) lesen. ---
+enum class PollPhase { Idle, Converting };
+PollPhase pollPhase = PollPhase::Idle;
+uint32_t pollPhaseStartMs = 0;
+
+enum class SensorState { Warten, Fehler, Ok };
+SensorState sensor1State = SensorState::Warten;
+bool sensor1SawValidReading = false;
+float sensor1RawC = 0.0f;
+float sensor1CalC = 0.0f;
+
+uint8_t fan1TargetDutyPct = 0;
+bool fan1WasOn = false;
+bool fan1KickstartActive = false;
+uint32_t fan1KickstartEndMs = 0;
+
+uint16_t fan1Rpm = 0;
+uint8_t fan1FailCycles = 0;
+
+uint32_t loopCount = 0;
+uint16_t loopHz = 0;
+
+// Wertet einen abgeschlossenen Sensor-Read aus, aktualisiert die
+// Kennlinie (Kickstart lebt hier im Controller, siehe
+// CLAUDE.md Architektur-Regel 3) und loggt den Zyklus.
+void applySensorReading(float rawC, uint32_t now) {
+  bool regulate = true;
+  if (rawC < TEMP_MIN_VALID || rawC > TEMP_MAX_VALID) {
+    // Deckt auch DEVICE_DISCONNECTED_C (-127) ab, ohne eine
+    // library-spezifische Konstante ausserhalb von config.h
+    // einzufuehren (Architektur-Regel 5: Schwellen nur in config.h).
+    sensor1State = SensorState::Fehler;
+  } else if (!sensor1SawValidReading && rawC == TEMP_POR_VALUE) {
+    sensor1State = SensorState::Warten;
+    regulate = false;  // noch keine abgeschlossene Conversion -- nicht regeln
+  } else {
+    sensor1State = SensorState::Ok;
+    sensor1SawValidReading = true;
+    sensor1RawC = rawC;
+  }
+
+  if (regulate) {
+    // Kein Ambient-Sensor im Debug-Modus vorhanden. SENSOR_K ist fuer
+    // alle Rollen ohnehin 0 (noch keine Waermebildkamera-Kalibrierung),
+    // deshalb rawSonde auch als ambC hereinreichen -- Delta wird 0,
+    // dieTempC() liefert exakt rawSonde zurueck (siehe CLAUDE.md
+    // "Sensor-Kalibrierung").
+    sensor1CalC = dieTempC(sensor1RawC, sensor1RawC, SENSOR_K[ROLE_VSA1_1]);
+
+    const bool sensorOk = sensor1State == SensorState::Ok;
+    const uint8_t rampDuty = curveDuty(sensor1CalC, fan1WasOn);
+    const uint8_t newDuty = channelFailSafeDuty(rampDuty, sensorOk);
+    const bool nowOn = newDuty > 0;
+    if (nowOn && !fan1WasOn) {
+      fan1KickstartActive = true;
+      fan1KickstartEndMs = now + KICKSTART_MS;
+    }
+    fan1TargetDutyPct = newDuty;
+    fan1WasOn = nowOn;
+  }
+
+  switch (sensor1State) {
+    case SensorState::Fehler:
+      Serial.println("Kanal #1: Sensor-Fehler (ausserhalb Plausibilitaet/getrennt)");
+      break;
+    case SensorState::Warten:
+      Serial.println("Kanal #1: warte auf erste Conversion (85.00 Power-On-Default)");
+      break;
+    case SensorState::Ok:
+      Serial.printf("Kanal #1: T=%.1f C Duty=%u%% RPM=%u\n", static_cast<double>(sensor1CalC),
+                    fan1TargetDutyPct, fan1Rpm);
+      break;
+  }
+}
+
+void tickSensorPoll(uint32_t now) {
+  if (pollPhase == PollPhase::Idle) {
+    if (now - pollPhaseStartMs >= SENSOR_POLL_MS) {
+      sensors.requestTemperatures();  // non-blocking, siehe setWaitForConversion(false)
+      pollPhaseStartMs = now;
+      pollPhase = PollPhase::Converting;
+    }
+  } else {
+    if (now - pollPhaseStartMs >= SENSOR_CONV_MS) {
+      const float raw = sensors.getTempC(SENSOR_ROM[ROLE_VSA1_1]);
+      pollPhaseStartMs = now;
+      pollPhase = PollPhase::Idle;
+      applySensorReading(raw, now);
+    }
+  }
+}
+
+void applyFan1Pwm(uint32_t now) {
+  uint8_t dutyToApply = fan1TargetDutyPct;
+  if (fan1KickstartActive) {
+    if (now < fan1KickstartEndMs) {
+      // Kickstart setzt sich gegen eine niedrigere Kennlinien-Duty
+      // durch, gewinnt aber nie gegen eine bereits hoehere (z. B.
+      // Fail-Safe-100%).
+      dutyToApply = KICKSTART_DUTY > fan1TargetDutyPct ? KICKSTART_DUTY : fan1TargetDutyPct;
+    } else {
+      fan1KickstartActive = false;
+      dutyToApply = fan1TargetDutyPct;
+    }
+  }
+  fan1PwmWrite(percentToDuty(dutyToApply));
+}
+
+uint32_t tachoWindowStartMs = 0;
+
+void tickTachoWindow(uint32_t now) {
+  if (now - tachoWindowStartMs < TACHO_WIN_MS) {
+    return;
+  }
+  tachoWindowStartMs = now;
+
+  noInterrupts();
+  const uint32_t pulses = fan1TachoPulses;
+  fan1TachoPulses = 0;
+  interrupts();
+  fan1Rpm = static_cast<uint16_t>((pulses * 60000UL) / (TACHO_PULSES_PER_REV * TACHO_WIN_MS));
+
+  // Health-Monitor (Fan-Teil, siehe CLAUDE.md): Tacho gegen
+  // kommandierte Duty pruefen. duty==0 && rpm==0 ist korrekt
+  // (Semi-Passiv), kein Alarm. FAIL_PERSIST entprellt kurze Ausreisser
+  // (z. B. beim Kickstart-Uebergang).
+  if (fan1TargetDutyPct > 0 && fan1Rpm < FAN_MIN_RPM) {
+    if (fan1FailCycles < 255) {
+      ++fan1FailCycles;
+    }
+  } else {
+    fan1FailCycles = 0;
+  }
+}
+
+ChStatus computeChannel1Status() {
+  if (sensor1State == SensorState::Fehler || fan1FailCycles >= FAIL_PERSIST) {
+    return ChStatus::Err;
+  }
+  if (sensor1State == SensorState::Warten) {
+    return ChStatus::Idle;  // noch kein Fehler, nur noch keine Regelung
+  }
+  if (sensor1CalC >= WARN_C) {
+    return ChStatus::Warn;
+  }
+  if (fan1TargetDutyPct == 0) {
+    return ChStatus::Idle;
+  }
+  return ChStatus::Ok;
+}
+
+uint32_t renderStartMs = 0;
+
+void tickRender(uint32_t now) {
+  if (now - renderStartMs < SCROLL_MS) {
+    return;
+  }
+  renderStartMs = now;
+
+  FinalDashboardData data{};
+  data.channels[0] = { sensor1CalC, static_cast<int16_t>(fan1Rpm), computeChannel1Status(), false };
+
+  // Kanaele #2-#4 und Ambient: im Debug-Modus bewusst nicht bestueckt
+  // (siehe config.h DEBUG_SINGLE_CHANNEL) -- Idle-Platzhalter, rpm=-1
+  // ("-") markiert klar "kein Kanal", nicht "Luefter steht".
+  const ChannelStatus idlePlaceholder{ 0.0f, -1, ChStatus::Idle, false };
+  data.channels[1] = idlePlaceholder;
+  data.channels[2] = idlePlaceholder;
+  data.channels[3] = idlePlaceholder;
+  data.ambient = idlePlaceholder;
+
+  char selfLine[22];
+  formatSelfDiagLine(selfLine, sizeof(selfLine), ESP.getFreeHeap(), loopHz);
+  data.scrollText = selfLine;
+  data.scrollTextLen = static_cast<uint8_t>(strlen(selfLine));
+
+  const bool phaseOn = (now / BLINK_MS) % 2 != 0;
+  const int32_t scrollOffsetPx = static_cast<int32_t>((now / SCROLL_MS) * SCROLL_STEP_PX);
+
+  dashboard.renderFinal(data, phaseOn, scrollOffsetPx, DEBUG_SINGLE_CHANNEL);
+}
+
+uint32_t loopHzWindowStartMs = 0;
+
+void tickLoopHz(uint32_t now) {
+  ++loopCount;
+  if (now - loopHzWindowStartMs < 1000) {
+    return;
+  }
+  loopHz = static_cast<uint16_t>((loopCount * 1000UL) / (now - loopHzWindowStartMs));
+  loopCount = 0;
+  loopHzWindowStartMs = now;
+}
+
+}  // namespace
+
 void setup() {
   Serial.begin(115200);
   pinMode(PIN_SPEAKER, OUTPUT);
@@ -318,7 +581,33 @@ void setup() {
   // GPIO2 ist ein Strapping-Pin -- Ausgang erst NACH dem Selbsttest
   // konfigurieren (siehe CLAUDE.md "Dashboard-Anzeige & Meldekanaele").
   pinMode(PIN_LED, OUTPUT);
+
+  Serial.println(DEBUG_SINGLE_CHANNEL
+                     ? "Debug-Modus: nur Kanal #1 (VSA1.1/Fan1) aktiv, "
+                       "#2-#4 + Ambient als Idle-Platzhalter"
+                     : "Vollbetrieb (4 Kanaele + Ambient) ist noch nicht verdrahtet");
+
+  sensors.begin();
+  sensors.setWaitForConversion(false);  // nicht-blockierend, siehe tickSensorPoll()
+  sensors.setResolution(SENSOR_ROM[ROLE_VSA1_1], SENSOR_RES_BITS);
+
+  fan1PwmBegin();
+  fan1PwmWrite(0);
+
+  pinMode(FAN[ROLE_VSA1_1].tachoPin, INPUT);  // externer 10k Pull-up vorausgesetzt
+  attachInterrupt(digitalPinToInterrupt(FAN[ROLE_VSA1_1].tachoPin), onFan1TachoFalling, FALLING);
+
+  if (!dashDisplay.begin()) {
+    Serial.println("Dashboard-OLED-Init fehlgeschlagen -- renderFinal() zeichnet ins Leere.");
+  }
 }
 
 void loop() {
+  const uint32_t now = millis();
+
+  tickSensorPoll(now);
+  applyFan1Pwm(now);
+  tickTachoWindow(now);
+  tickRender(now);
+  tickLoopHz(now);
 }

@@ -60,7 +60,13 @@ public:
   // Laufband in Zeile 5. `phaseOn`/`scrollOffsetPx` kommen ebenfalls
   // aus dem Regelkreis, kein eigener Display-Timer (siehe CLAUDE.md).
   // Additiv neben render() -- aendert nichts an dessen Verhalten.
-  void renderFinal(const FinalDashboardData& d, bool phaseOn, int32_t scrollOffsetPx);
+  //
+  // `debugMode` (siehe config.h DEBUG_SINGLE_CHANNEL): zeigt statt des
+  // Lebenszeichens ein grosses, im Blink-Takt invertierendes "D" in
+  // Zelle 0;0 -- unuebersehbarer Hinweis, dass nur ein Teil der Kanaele
+  // real bestueckt ist und der Rest bewusst als Idle-Platzhalter laeuft.
+  void renderFinal(const FinalDashboardData& d, bool phaseOn, int32_t scrollOffsetPx,
+                    bool debugMode);
 
 private:
   void drawStatusCell(uint8_t col, ChStatus status, uint8_t phase);

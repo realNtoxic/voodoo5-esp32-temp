@@ -153,12 +153,29 @@ uint8_t chFillWidth(uint8_t col) {
 
 }  // namespace
 
-void Dashboard::renderFinal(const FinalDashboardData& d, bool phaseOn, int32_t scrollOffsetPx) {
+namespace {
+constexpr uint8_t kDebugMarkSize = 2;  // "gross": doppelte Standardgroesse
+}  // namespace
+
+void Dashboard::renderFinal(const FinalDashboardData& d, bool phaseOn, int32_t scrollOffsetPx,
+                             bool debugMode) {
   display_.clear();
 
-  // Kopfzeile: Lebenszeichen (0;0) + #1..#4.
-  const char hb[2] = { phaseOn ? HEARTBEAT_A : HEARTBEAT_B, '\0' };
-  display_.drawText(CH_COL_X[0], CH_ROW_Y[0], hb, TXT_SIZE_HEAD, false);
+  // Kopfzeile, Zelle 0;0: im Debug-Modus ein grosses, im Blink-Takt
+  // invertierendes "D" statt des Lebenszeichens -- siehe config.h
+  // DEBUG_SINGLE_CHANNEL. Row 0 hat keine Zeile darueber, deshalb hier
+  // kein "y - 1"-Polster wie bei den Statuszellen.
+  if (debugMode) {
+    const uint8_t markW = static_cast<uint8_t>(6 * kDebugMarkSize);
+    const uint8_t markH = static_cast<uint8_t>(8 * kDebugMarkSize);
+    if (phaseOn) {
+      display_.fillRect(CH_COL_X[0], CH_ROW_Y[0], markW, markH);
+    }
+    display_.drawText(CH_COL_X[0], CH_ROW_Y[0], "D", kDebugMarkSize, phaseOn);
+  } else {
+    const char hb[2] = { phaseOn ? HEARTBEAT_A : HEARTBEAT_B, '\0' };
+    display_.drawText(CH_COL_X[0], CH_ROW_Y[0], hb, TXT_SIZE_HEAD, false);
+  }
   static const char* const kHeaders[4] = { "#1", "#2", "#3", "#4" };
   for (uint8_t i = 0; i < 4; ++i) {
     display_.drawText(CH_COL_X[i + 1], CH_ROW_Y[0], kHeaders[i], TXT_SIZE_HEAD, false);

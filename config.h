@@ -79,8 +79,11 @@ constexpr uint8_t ROLE_AMB    = 4;  // kein eigener Regelkreis
 // ROM-Adressen NACH der Discovery hier eintragen.
 // Solange Nullen drinstehen, schlaegt die CRC-Pruefung fehl und die
 // Firmware startet automatisch im Discovery-Modus (kein Regelbetrieb).
+// VSA1.1 ist per tools/sensor_test/ auf dem Steckbrett ermittelt und
+// per CRC8 verifiziert (siehe DEBUG_SINGLE_CHANNEL unten) -- die
+// uebrigen vier warten noch auf Hardware/Discovery.
 constexpr uint8_t SENSOR_ROM[5][8] = {
-  { 0x28, 0, 0, 0, 0, 0, 0, 0 },   // VSA1.1 (Rueckseite)
+  { 0x28, 0x16, 0x4D, 0x53, 0x0F, 0x00, 0x00, 0xFD },   // VSA1.1 (Rueckseite)
   { 0x28, 0, 0, 0, 0, 0, 0, 0 },   // VSA1.2 (Vorderseite)
   { 0x28, 0, 0, 0, 0, 0, 0, 0 },   // VSA2.1 (Rueckseite)
   { 0x28, 0, 0, 0, 0, 0, 0, 0 },   // VSA2.2 (Vorderseite)
@@ -88,6 +91,16 @@ constexpr uint8_t SENSOR_ROM[5][8] = {
 };
 
 constexpr bool FORCE_DISCOVERY = false;  // true = Discovery erzwingen
+
+// Bankaufbau-Modus: nur Kanal VSA1.1/Fan1 ist physisch vorhanden.
+// Kanaele VSA1.2/VSA2.1/VSA2.2 und AMB gelten als "nicht bestueckt" --
+// sie werden weder gelesen noch auf Fehler geprueft (Status bleibt
+// `Idle`), damit nach dem Boot kein Fehler fuer fehlende Hardware
+// stehen bleibt. Auf dem Dashboard zusaetzlich an einem grossen,
+// im Blink-Takt invertierenden "D" in Zelle 0;0 erkennbar (siehe
+// Dashboard::renderFinal()). false = Vollbetrieb, alle 4 Kanaele +
+// Ambient erwartet (noch nicht implementiert, siehe CLAUDE.md).
+constexpr bool DEBUG_SINGLE_CHANNEL = true;
 
 // Plausibilitaet
 constexpr float TEMP_MIN_VALID = -55.0f;

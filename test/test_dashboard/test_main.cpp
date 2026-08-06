@@ -196,7 +196,7 @@ static void test_render_final_all_ok_phase_off_exact_sequence() {
   Dashboard dash(fd);
   const FinalDashboardData d = allOkFinalData();
 
-  dash.renderFinal(d, /*phaseOn=*/false, /*scrollOffsetPx=*/0);
+  dash.renderFinal(d, /*phaseOn=*/false, /*scrollOffsetPx=*/0, /*debugMode=*/false);
 
   const std::vector<std::string> expected = {
     "clear",
@@ -250,7 +250,7 @@ static void test_render_final_unacked_err_channel_shows_frame() {
   d.channels[2].status = ChStatus::Err;
   d.channels[2].acked = false;
 
-  dash.renderFinal(d, /*phaseOn=*/false, /*scrollOffsetPx=*/0);
+  dash.renderFinal(d, /*phaseOn=*/false, /*scrollOffsetPx=*/0, /*debugMode=*/false);
 
   bool hasFrame = false;
   for (size_t i = 0; i + 1 < fd.calls.size(); ++i) {
@@ -269,13 +269,45 @@ static void test_render_final_is_deterministic_for_same_inputs() {
 
   FakeDisplay fdFirst;
   Dashboard dashFirst(fdFirst);
-  dashFirst.renderFinal(d, true, 17);
+  dashFirst.renderFinal(d, true, 17, false);
 
   FakeDisplay fdSecond;
   Dashboard dashSecond(fdSecond);
-  dashSecond.renderFinal(d, true, 17);
+  dashSecond.renderFinal(d, true, 17, false);
 
   TEST_ASSERT_TRUE(fdFirst.calls == fdSecond.calls);
+}
+
+// Debug-Modus (siehe config.h DEBUG_SINGLE_CHANNEL): Zelle 0;0 zeigt
+// ein grosses "D" statt des Lebenszeichens, invertiert im Blink-Takt.
+static void test_render_final_debug_mode_shows_inverted_d_in_phase() {
+  const FinalDashboardData d = allOkFinalData();
+
+  FakeDisplay fdOn;
+  Dashboard dashOn(fdOn);
+  dashOn.renderFinal(d, /*phaseOn=*/true, 0, /*debugMode=*/true);
+  TEST_ASSERT_EQUAL_STRING("clear", fdOn.calls[0].c_str());
+  TEST_ASSERT_EQUAL_STRING("fillRect:0:0:12:16", fdOn.calls[1].c_str());
+  TEST_ASSERT_EQUAL_STRING("drawText:0:0:D:2:1", fdOn.calls[2].c_str());
+
+  FakeDisplay fdOff;
+  Dashboard dashOff(fdOff);
+  dashOff.renderFinal(d, /*phaseOn=*/false, 0, /*debugMode=*/true);
+  TEST_ASSERT_EQUAL_STRING("clear", fdOff.calls[0].c_str());
+  TEST_ASSERT_EQUAL_STRING("drawText:0:0:D:2:0", fdOff.calls[1].c_str());
+}
+
+// Debug-Modus aendert nichts ausserhalb von Zelle 0;0 -- derselbe
+// Kanalinhalt wie im Nicht-Debug-Fall (nur Zeilen 0-2 hier verglichen,
+// der Rest ist identisch zur exakten Sequenz oben).
+static void test_render_final_debug_mode_off_matches_heartbeat() {
+  const FinalDashboardData d = allOkFinalData();
+
+  FakeDisplay fd;
+  Dashboard dash(fd);
+  dash.renderFinal(d, /*phaseOn=*/false, 0, /*debugMode=*/false);
+
+  TEST_ASSERT_EQUAL_STRING("drawText:0:0:-:1:0", fd.calls[1].c_str());
 }
 
 int main(int, char**) {
@@ -290,5 +322,7 @@ int main(int, char**) {
   RUN_TEST(test_render_final_all_ok_phase_off_exact_sequence);
   RUN_TEST(test_render_final_unacked_err_channel_shows_frame);
   RUN_TEST(test_render_final_is_deterministic_for_same_inputs);
+  RUN_TEST(test_render_final_debug_mode_shows_inverted_d_in_phase);
+  RUN_TEST(test_render_final_debug_mode_off_matches_heartbeat);
   return UNITY_END();
 }
