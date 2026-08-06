@@ -90,6 +90,32 @@ static void test_draw_scroll_line_negative_offset_wraps_consistently() {
   TEST_ASSERT_TRUE(displayA.calls == displayB.calls);
 }
 
+// Ein Zeichen, das knapp VOR dem rechten Rand beginnt aber durch seine
+// Breite (6px) darueber hinausragen wuerde, darf NICHT gezeichnet
+// werden -- Adafruit_GFX wuerde sonst intern auf die naechste Zeile
+// umbrechen (Zeichen landet dann z. B. unter dem Ambient-Segment statt
+// am rechten Rand abgeschnitten zu werden, siehe CLAUDE.md/echte
+// Hardware-Beobachtung). "B" wuerde bei x=124 stehen (124+6=130 > 128),
+// "A" bei x=118 passt noch vollstaendig (118+6=124 <= 128).
+static void test_draw_scroll_line_clips_character_straddling_right_edge() {
+  FakeDisplay display;
+  drawScrollLine(display, "AB", 2, /*offsetPx=*/0, /*startX=*/118, /*y=*/53, /*screenWidth=*/128);
+
+  int drawCount = 0;
+  bool sawBAt124 = false;
+  for (const auto& call : display.calls) {
+    if (call.rfind("drawText:", 0) != 0) {
+      continue;
+    }
+    ++drawCount;
+    if (call.rfind("drawText:124:", 0) == 0) {
+      sawBAt124 = true;
+    }
+  }
+  TEST_ASSERT_EQUAL_INT(1, drawCount);
+  TEST_ASSERT_FALSE(sawBAt124);
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_scroll_char_x_offset_zero);
@@ -98,5 +124,6 @@ int main(int, char**) {
   RUN_TEST(test_draw_scroll_line_clips_left_of_segment);
   RUN_TEST(test_draw_scroll_line_wraps_seamlessly);
   RUN_TEST(test_draw_scroll_line_negative_offset_wraps_consistently);
+  RUN_TEST(test_draw_scroll_line_clips_character_straddling_right_edge);
   return UNITY_END();
 }

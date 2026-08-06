@@ -221,7 +221,17 @@ public:
   explicit Esp32Display(TwoWire& wire) : display_(OLED_WIDTH, OLED_HEIGHT, &wire, -1) {}
 
   bool begin() {
-    return display_.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR);
+    const bool ok = display_.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR);
+    // Adafruit_GFX bricht per Default (setTextWrap(true)) ein Zeichen,
+    // das nicht mehr in die aktuelle Zeile passt, auf die naechste Zeile
+    // um (Cursor zurueck auf x=0, y+=8) -- genau das passiert beim
+    // Laufband (ScrollLine.h), sobald ein Zeichen nahe am rechten Rand
+    // steht: es landet dann nicht mehr an der von uns berechneten
+    // Position, sondern in der Zeile darunter. Unsere Zeichenlogik
+    // (Dashboard/ScrollLine) bestimmt Positionen bereits vollstaendig
+    // selbst und will nie ein GFX-eigenes Zeilenumbruch-Verhalten.
+    display_.setTextWrap(false);
+    return ok;
   }
 
   void clear() override {

@@ -9,8 +9,15 @@ void drawCopy(IDisplay& display, const char* text, uint8_t textLen, int32_t offs
   for (uint8_t i = 0; i < textLen; ++i) {
     const int32_t x = scrollCharX(i, offsetPx, GLYPH_W, startX);
     // Links vom Ambient-Segment und rechts vom Bildschirm geclippt --
-    // kein Zeichen darf dort gezeichnet werden.
-    if (x < static_cast<int32_t>(startX) || x >= static_cast<int32_t>(screenWidth)) {
+    // kein Zeichen darf dort gezeichnet werden. Rechts reicht "x <
+    // screenWidth" NICHT: ein Zeichen, das noch knapp VOR dem Rand
+    // beginnt aber durch seine Breite darueber hinausragen wuerde,
+    // wuerde Adafruit_GFX' eigenen Zeilenumbruch ausloesen (Zeichen
+    // landet dann in der naechsten Zeile statt am rechten Rand
+    // abgeschnitten zu werden) -- deshalb muss das GANZE Zeichen
+    // hineinpassen, nicht nur sein Startpixel.
+    if (x < static_cast<int32_t>(startX) ||
+        x + static_cast<int32_t>(GLYPH_W) > static_cast<int32_t>(screenWidth)) {
       continue;
     }
     const char glyph[2] = { text[i], '\0' };

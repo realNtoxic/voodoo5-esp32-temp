@@ -226,11 +226,11 @@ static void test_render_final_all_ok_phase_off_exact_sequence() {
     "vLine:46:42",
     "vLine:73:42",
     "vLine:100:42",
-    "drawText:0:43:Amb:26:1:0",
-    "drawText:40:43:H:1:0",
-    "drawText:46:43:i:1:0",
-    "drawText:52:43:H:1:0",
-    "drawText:58:43:i:1:0",
+    "drawText:0:53:Amb:26:1:0",
+    "drawText:40:53:H:1:0",
+    "drawText:46:53:i:1:0",
+    "drawText:52:53:H:1:0",
+    "drawText:58:53:i:1:0",
     "present",
   };
 

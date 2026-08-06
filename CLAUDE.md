@@ -122,6 +122,18 @@ Bauteile: ESP32 DevKit, 5x DS18B20, OLED SSD1306 128x64, 4x Noctua NF-A4x10
   bewusst denselben externen 10k-Pull-up spendiert: intern **und**
   extern parallel ist unkritisch, vereinheitlicht aber das Layout aller
   vier Kanaele.
+- **Adafruit_GFX bricht Text per Default automatisch um.** `setTextWrap`
+  ist standardmaessig `true`: passt ein Zeichen nicht mehr in die
+  aktuelle Zeile, setzt die Bibliothek den Cursor selbst auf x=0 der
+  naechsten Zeile, statt es einfach am Rand abzuschneiden. Das Laufband
+  (`lib/Dashboard/ScrollLine.h`) zeichnet absichtlich bis nah an den
+  rechten Rand (`OLED_WIDTH`) -- ohne `display_.setTextWrap(false)` in
+  `Esp32Display::begin()` landet ein Zeichen nahe am Rand dann plötzlich
+  eine Zeile tiefer, sichtbar z. B. als einzelnes Zeichen unterhalb des
+  Ambient-Segments. Zusaetzlich clippt `ScrollLine.cpp` jedes Zeichen,
+  dessen volle Breite (nicht nur der Startpixel) ueber den Rand
+  hinausragen wuerde, damit die Zeichenposition nie von einem
+  Bibliotheks-Default abhaengt.
 
 ---
 
