@@ -20,23 +20,25 @@
 namespace {
 
 // --- Hardware -----------------------------------------------------
-// PL9823-F5 (WS2812B-kompatibel), Datenpin (DIN) an GPIO16. VDD an
-// eigener +5V-Quelle, GND ZWINGEND gemeinsam mit dem ESP32 -- sonst
-// hat DIN keinen Bezugspunkt und das Signal ist undefiniert.
+// PL9823-F5 (WS2812B-kompatibel), GPIO16 -> DIN. VDD an eigener
+// +5V-Quelle, GND ZWINGEND gemeinsam mit dem ESP32 -- sonst hat DIN
+// keinen Bezugspunkt und das Signal ist undefiniert. DOUT bleibt frei
+// (nur eine LED, keine Kette).
 //
-// DIN erwartet laut Datenblatt strenggenommen 5V-Logik, der ESP32
-// liefert nur 3,3V. Bei EINER LED und kurzer Leitung funktioniert das
+// DIN bekommt vom ESP32 nur 3,3V-Logik, waehrend die LED strenggenommen
+// 5V-Logik erwartet. Bei EINER LED und kurzer Leitung funktioniert das
 // in der Praxis meist trotzdem (3,3V liegt meist noch ueber der
 // High-Schwelle der LED). Flackert die LED oder reagiert gar nicht:
-// Pegelwandler (z. B. 74HCT125) zwischen GPIO16 und DIN einschleifen,
-// oder die LED mit ~4V statt 5V versorgen (senkt die noetige
-// High-Schwelle). Reines Hardware-Thema -- kein Codefix moeglich.
+// eine 1N4148 in Durchlassrichtung in die VDD-Leitung legen (LED laeuft
+// dann an ~4,3V statt 5V, senkt die noetige High-Schwelle) oder einen
+// Pegelwandler zwischen GPIO16 und DIN einschleifen. Reines
+// Hardware-Thema -- kein Codefix moeglich.
 constexpr uint8_t PIN_LED_DATA = 16;
 constexpr uint8_t NUM_PIXELS   = 1;
 
 // Helligkeit begrenzen: eine 5mm-LED auf voller Helligkeit (255)
-// blendet unangenehm und zieht unnoetig Strom. ~40% reicht locker, um
-// alle Testfarben sicher zu unterscheiden.
+// blendet unangenehm und zieht unnoetig Strom. ~30-40% reicht locker,
+// um alle Testfarben sicher zu unterscheiden.
 constexpr uint8_t BRIGHTNESS = 100;  // von 255, ~40 %
 
 // ACHTUNG Farbreihenfolge: NEO_GRB ist die Werkseinstellung fuer die
@@ -61,7 +63,6 @@ constexpr ColorPhase PHASES[] = {
   { "ROT",   255, 0,   0   },
   { "GRUEN", 0,   255, 0   },
   { "BLAU",  0,   0,   255 },
-  { "WEISS", 255, 255, 255 },
   { "AUS",   0,   0,   0   },
 };
 constexpr uint8_t  PHASE_COUNT = sizeof(PHASES) / sizeof(PHASES[0]);
