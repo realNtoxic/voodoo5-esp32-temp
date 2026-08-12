@@ -1,16 +1,22 @@
 // =============================================================
 //  tools/led_test/src/main.cpp — Eigenstaendiger RGB-LED-Bring-up-Test.
 //
-//  Zweck: NUR pruefen, ob eine adressierbare PL9823-F5 (WS2812B-
-//  kompatibel) an GPIO16 korrekt angesteuert wird UND welche
-//  Byte-Farbreihenfolge das konkrete Bauteil tatsaechlich erwartet
-//  (siehe unten) -- keine Regelung, kein Hal/ILed aus der
-//  Hauptfirmware, bewusst vollstaendig eigenstaendig, analog zu
-//  tools/display_test/.
+//  Zweck: NUR pruefen, ob zwei in Reihe geschaltete, adressierbare
+//  PL9823-F5 (WS2812B-kompatibel) an GPIO16 korrekt einzeln
+//  angesteuert werden UND welche Byte-Farbreihenfolge das konkrete
+//  Bauteil tatsaechlich erwartet (siehe unten) -- keine Regelung, kein
+//  Hal/ILed aus der Hauptfirmware, bewusst vollstaendig eigenstaendig,
+//  analog zu tools/display_test/.
+//
+//  LED2 zeigt immer die Phase, die LED1 einen Schritt zuvor hatte (fest
+//  um 1 versetzt) -- so ist auf einen Blick sichtbar, dass beide LEDs
+//  der Kette unabhaengig voneinander angesteuert werden, nicht nur
+//  synchron dieselbe Farbe zeigen.
 //
 //  Ersetzt die fruehere einfarbige LED an GPIO2: die neue Hardware
-//  ist eine adressierbare RGB-LED (eigenes Protokoll ueber einen
-//  einzelnen Datenpin), kein einfacher Ein/Aus-Ausgang mehr.
+//  sind adressierbare RGB-LEDs (eigenes Protokoll ueber einen
+//  einzelnen Datenpin, in Reihe durchgeschleift), kein einfacher
+//  Ein/Aus-Ausgang mehr.
 //
 //  Bauen/Flashen: pio run -t upload (aus diesem Verzeichnis heraus)
 // =============================================================
@@ -20,21 +26,23 @@
 namespace {
 
 // --- Hardware -----------------------------------------------------
-// PL9823-F5 (WS2812B-kompatibel), GPIO16 -> DIN. VDD an eigener
-// +5V-Quelle, GND ZWINGEND gemeinsam mit dem ESP32 -- sonst hat DIN
-// keinen Bezugspunkt und das Signal ist undefiniert. DOUT bleibt frei
-// (nur eine LED, keine Kette).
+// 2x PL9823-F5 (WS2812B-kompatibel) in Reihe: GPIO16 -> DIN LED1,
+// DOUT LED1 -> DIN LED2, DOUT LED2 bleibt frei (Ende der Kette). VDD
+// beider LEDs an derselben +5V-Quelle, GND ZWINGEND gemeinsam mit dem
+// ESP32 -- sonst hat DIN keinen Bezugspunkt und das Signal ist
+// undefiniert.
 //
 // DIN bekommt vom ESP32 nur 3,3V-Logik, waehrend die LED strenggenommen
-// 5V-Logik erwartet. Bei EINER LED und kurzer Leitung funktioniert das
-// in der Praxis meist trotzdem (3,3V liegt meist noch ueber der
-// High-Schwelle der LED). Flackert die LED oder reagiert gar nicht:
-// eine 1N4148 in Durchlassrichtung in die VDD-Leitung legen (LED laeuft
-// dann an ~4,3V statt 5V, senkt die noetige High-Schwelle) oder einen
-// Pegelwandler zwischen GPIO16 und DIN einschleifen. Reines
-// Hardware-Thema -- kein Codefix moeglich.
+// 5V-Logik erwartet. Bei kurzer Leitung zu LED1 funktioniert das in der
+// Praxis meist trotzdem (3,3V liegt meist noch ueber der High-Schwelle
+// der LED); LED2 haengt ohnehin am 5V-Ausgangssignal von LED1, nicht
+// mehr an GPIO16, ist also unkritisch. Flackert LED1 oder reagiert gar
+// nicht: eine 1N4148 in Durchlassrichtung in die VDD-Leitung legen
+// (LED laeuft dann an ~4,3V statt 5V, senkt die noetige High-Schwelle)
+// oder einen Pegelwandler zwischen GPIO16 und DIN LED1 einschleifen.
+// Reines Hardware-Thema -- kein Codefix moeglich.
 constexpr uint8_t PIN_LED_DATA = 16;
-constexpr uint8_t NUM_PIXELS   = 1;
+constexpr uint8_t NUM_PIXELS   = 2;
 
 // Helligkeit begrenzen: eine 5mm-LED auf voller Helligkeit (255)
 // blendet unangenehm und zieht unnoetig Strom. ~30-40% reicht locker,
@@ -44,12 +52,14 @@ constexpr uint8_t BRIGHTNESS = 100;  // von 255, ~40 %
 // ACHTUNG Farbreihenfolge: NEO_GRB ist die Werkseinstellung fuer die
 // meisten WS2812B/PL9823-Module, aber nicht garantiert -- manche
 // PL9823-Chargen sind tatsaechlich RGB statt GRB. Genau DESHALB gibt
-// dieser Test bei jeder Phase den SOLL-Farbnamen ueber Serial aus:
-// leuchtet die LED bei "soll: ROT" z. B. gruen, steht hier die
+// dieser Test bei jeder Phase je LED den SOLL-Farbnamen ueber Serial
+// aus: leuchtet z. B. LED1 bei "LED1 soll: ROT" gruen, steht hier die
 // falsche Reihenfolge -- dann NEO_GRB durch NEO_RGB ersetzen (oder die
 // passende Permutation, siehe Adafruit_NeoPixel.h fuer alle
-// NEO_*-Konstanten). Ziel dieses Tests ist genau diese Reihenfolge
-// fuer die spaetere Statuslogik festzunageln, nicht sie zu erraten.
+// NEO_*-Konstanten). Gilt fuer beide LEDs gleichermassen, es gibt nur
+// eine strip-Instanz mit einer gemeinsamen Farbreihenfolge. Ziel dieses
+// Tests ist genau diese Reihenfolge fuer die spaetere Statuslogik
+// festzunageln, nicht sie zu erraten.
 Adafruit_NeoPixel strip(NUM_PIXELS, PIN_LED_DATA, NEO_GRB + NEO_KHZ800);
 
 struct ColorPhase {
@@ -72,11 +82,22 @@ uint32_t lastPhaseSwitchMs = 0;
 uint8_t  phaseIndex = 0;
 
 void showPhase(uint8_t index) {
-  const ColorPhase& p = PHASES[index];
-  strip.setPixelColor(0, strip.Color(p.r, p.g, p.b));
+  // LED2 zeigt fest die vorherige Phase von LED1 (um genau 1 versetzt,
+  // zyklisch) -- Modulo-Rueckwaertszaehlung statt "- 1", damit index=0
+  // nicht in negative Zahlen bzw. Unterlauf laeuft (uint8_t).
+  const uint8_t indexLed1 = index;
+  const uint8_t indexLed2 = static_cast<uint8_t>((index + PHASE_COUNT - 1) % PHASE_COUNT);
+  const ColorPhase& p1 = PHASES[indexLed1];
+  const ColorPhase& p2 = PHASES[indexLed2];
+
+  strip.setPixelColor(0, strip.Color(p1.r, p1.g, p1.b));
+  strip.setPixelColor(1, strip.Color(p2.r, p2.g, p2.b));
   strip.show();
-  Serial.print("soll: ");
-  Serial.println(p.name);
+
+  Serial.print("LED1 soll: ");
+  Serial.println(p1.name);
+  Serial.print("LED2 soll: ");
+  Serial.println(p2.name);
 }
 
 }  // namespace
